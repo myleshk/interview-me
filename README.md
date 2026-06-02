@@ -171,6 +171,27 @@ curl http://localhost:8000/v1/metrics
 { "total_requests": 17, "uptime_seconds": 120.3, "model": "deepseek-chat" }
 ```
 
+### `POST /v1/debug/retrieve`
+
+Run only the RAG retrieve step — see exactly which chunks Qdrant returns for a query, without calling the LLM.
+
+```bash
+curl -X POST http://localhost:8000/v1/debug/retrieve \
+  -H "Content-Type: application/json" \
+  -d '{"query":"What projects have you worked on?","limit":5}'
+```
+
+```json
+{
+  "query": "What projects have you worked on?",
+  "total_results": 3,
+  "chunks": [
+    {"source": "Professional_Profile.md", "text": "Myles operates on the principle..."},
+    ...
+  ]
+}
+```
+
 ### `GET /v1/cv/download`
 
 Download the owner's CV as a PDF file. Place your PDF at `api/data/static/cv.pdf`.
@@ -214,7 +235,7 @@ All settings live in `api/app/core/config.py` and can be overridden via `.env` o
 | `ALLOWED_ORIGINS` | `["*"]` | CORS allowed origins |
 | `RATE_LIMIT_REQUESTS` | `30` | Max requests per window |
 | `RATE_LIMIT_WINDOW_SECONDS` | `60` | Rate limit window in seconds |
-| `DEBUG` | `false` | Enable debug logging |
+| `DEBUG` | `false` | Enable debug logging (shows chunk content + full system prompt) |
 
 ## Development Notes
 

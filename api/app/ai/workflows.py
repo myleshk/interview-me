@@ -115,6 +115,11 @@ class AvatarWorkflow(Workflow):
             len(results),
             len(context_chunks),
         )
+        for i, chunk in enumerate(context_chunks):
+            preview = chunk[:300] + "…" if len(chunk) > 300 else chunk
+            source = results[i].get("source", "?") if i < len(results) else "?"
+            logger.debug("retrieve | chunk[%d] source=%s  text=%s", i, source, preview)
+
         return RetrievedEvent(query=query, context_chunks=context_chunks)
 
     # ── Step 2: Synthesize ───────────────────────────────────
@@ -131,6 +136,7 @@ class AvatarWorkflow(Workflow):
         yielding response tokens for SSE streaming.
         """
         system_prompt = build_system_prompt(context_chunks=ev.context_chunks)
+        logger.debug("synthesize | system_prompt (%d chars):\n%s", len(system_prompt), system_prompt)
 
         messages = [
             {"role": "system", "content": system_prompt},
