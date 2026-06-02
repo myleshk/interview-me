@@ -49,6 +49,8 @@ def _load_markdown_files() -> list[dict[str, str]]:
         return docs
 
     for path in sorted(DATA_DIR.glob("*.md")):
+        if path.name == "README.md":
+            continue  # template, not personal knowledge
         text = path.read_text(encoding="utf-8")
         if text.strip():
             docs.append({"source": path.name, "text": text})
