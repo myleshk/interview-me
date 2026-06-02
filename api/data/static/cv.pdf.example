@@ -1,0 +1,4 @@
+# Place your CV PDF here — this file is NOT tracked by git
+#
+# The file must be named: cv.pdf
+# It is served at: GET /v1/cv/download
