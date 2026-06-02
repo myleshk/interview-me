@@ -17,6 +17,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.ai.workflows import AvatarWorkflow
+from app.ai.qdrant import ensure_collection
 from app.api.routes_admin import router as admin_router
 from app.api.routes_ai import router as ai_router
 from app.api.routes_cv import router as cv_router
@@ -38,6 +39,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Pre-warm the workflow (shared across requests)
     app.state.workflow = AvatarWorkflow()
     app.state.request_count = 0
+
+    # Ensure the Qdrant collection exists (idempotent — no-op if already there)
+    await ensure_collection()
 
     logger.info(
         "interview-me API started  model=%s  qdrant=%s",

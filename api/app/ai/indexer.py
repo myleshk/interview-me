@@ -118,3 +118,16 @@ async def index_all() -> int:
     await upsert_points(points)
     logger.info("indexer | indexed %d points into '%s'", len(points), settings.qdrant_collection_name)
     return len(points)
+
+
+# ── CLI entry point ────────────────────────────────────────
+
+if __name__ == "__main__":
+    import asyncio
+
+    logging.basicConfig(
+        level=logging.DEBUG if settings.debug else logging.INFO,
+        format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+    )
+    count = asyncio.run(index_all())
+    print(f"Indexed {count} chunks into '{settings.qdrant_collection_name}'")

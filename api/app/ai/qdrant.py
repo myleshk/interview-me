@@ -35,10 +35,10 @@ def get_qdrant_client() -> AsyncQdrantClient:
     """Return (or create) the async Qdrant client singleton."""
     global _client
     if _client is None:
-        _client = AsyncQdrantClient(
-            url=settings.qdrant_url,
-            api_key=settings.qdrant_api_key,
-        )
+        kwargs: dict[str, Any] = {"url": settings.qdrant_url}
+        if settings.qdrant_api_key:
+            kwargs["api_key"] = settings.qdrant_api_key
+        _client = AsyncQdrantClient(**kwargs)
     return _client
 
 
