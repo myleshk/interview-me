@@ -32,12 +32,13 @@ logger = logging.getLogger(__name__)
 # ── Query rewriting prompt ─────────────────────────────────
 
 QUERY_REWRITE_PROMPT = (
-    "You are a search query generator. Expand the user's question "
-    "into a concise, keyword-rich search query designed for semantic "
-    "vector search. Include synonyms, related concepts, and specific "
-    "terms a recruiter might ask about (skills, roles, companies, "
-    "projects, technologies). Output ONLY the expanded query — no "
-    "explanation, no preamble, no markdown."
+    "You are a search query generator for a personal CV knowledge base. "
+    "Expand the user's question into 3-5 concise keywords or phrases "
+    "that would help find relevant sections in a resume. Focus on "
+    "skills, technologies, concepts, and roles mentioned in the "
+    "question. Do NOT invent company names, people, or facts not "
+    "present in the question. Output ONLY the keywords — no "
+    "explanation, no preamble, no markdown, no list format."
 )
 
 
