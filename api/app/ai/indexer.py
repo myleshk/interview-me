@@ -1,6 +1,7 @@
 """Markdown-to-vector indexer.
 
-Reads ``api/data/knowledge/*.md`` files, chunks them, generates
+Reads ``api/data/knowledge/*.md`` files, chunks them with LlamaIndex's
+hierarchical ``MarkdownNodeParser`` (respects heading structure), generates
 embeddings via FastEmbed, and upserts them into Qdrant for hybrid search.
 
 Usage (one-time or on-deploy)::
@@ -16,6 +17,8 @@ import logging
 from pathlib import Path
 
 from fastembed import TextEmbedding
+from llama_index.core import Document
+from llama_index.core.node_parser import MarkdownNodeParser
 
 from app.core.config import settings
 from app.ai.qdrant import ensure_collection, upsert_points
@@ -23,27 +26,13 @@ from app.ai.qdrant import ensure_collection, upsert_points
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "knowledge"
-CHUNK_SIZE = 500  # characters per chunk (naive split)
-CHUNK_OVERLAP = 50
+
+# ── Markdown loading ──────────────────────────────────────
 
 
-# ── Chunking ──────────────────────────────────────────────
-
-
-def _chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
-    """Naive character-level chunking with overlap."""
-    chunks: list[str] = []
-    start = 0
-    while start < len(text):
-        end = start + chunk_size
-        chunks.append(text[start:end].strip())
-        start += chunk_size - overlap
-    return [c for c in chunks if c]
-
-
-def _load_markdown_files() -> list[dict[str, str]]:
-    """Read all .md files from the data directory."""
-    docs: list[dict[str, str]] = []
+def _load_markdown_files() -> list[Document]:
+    """Read all .md files as LlamaIndex Documents (skip README.md template)."""
+    docs: list[Document] = []
     if not DATA_DIR.exists():
         logger.warning("indexer | data dir not found: %s", DATA_DIR)
         return docs
@@ -53,7 +42,7 @@ def _load_markdown_files() -> list[dict[str, str]]:
             continue  # template, not personal knowledge
         text = path.read_text(encoding="utf-8")
         if text.strip():
-            docs.append({"source": path.name, "text": text})
+            docs.append(Document(text=text, metadata={"source": path.name}))
 
     logger.info("indexer | loaded %d markdown files", len(docs))
     return docs
@@ -81,7 +70,8 @@ def _embed(texts: list[str]) -> list[list[float]]:
 
 
 async def index_all() -> int:
-    """Parse all Markdown files, embed, and upsert into Qdrant.
+    """Parse all Markdown files with hierarchical heading-aware chunking,
+    embed, and upsert into Qdrant.
 
     Returns:
         Number of chunks indexed.
@@ -90,35 +80,54 @@ async def index_all() -> int:
 
     await ensure_collection()
 
-    docs = _load_markdown_files()
-    if not docs:
+    documents = _load_markdown_files()
+    if not documents:
         logger.info("indexer | nothing to index")
         return 0
 
-    # Flatten into chunks, keeping source metadata
-    all_chunks: list[dict[str, str]] = []
-    for doc in docs:
-        for chunk in _chunk_text(doc["text"]):
-            all_chunks.append({"source": doc["source"], "text": chunk})
+    # Hierarchical Markdown parsing — chunks respect heading structure
+    parser = MarkdownNodeParser()
+    nodes = parser.get_nodes_from_documents(documents)
 
-    logger.info("indexer | %d chunks from %d files", len(all_chunks), len(docs))
+    logger.info(
+        "indexer | %d chunks from %d files (MarkdownNodeParser)",
+        len(nodes),
+        len(documents),
+    )
 
-    # Embed all chunks
-    texts = [c["text"] for c in all_chunks]
+    # Extract texts for embedding
+    texts = [node.get_content() for node in nodes]
+
+    # Optional: log a size summary
+    sizes = [len(t) for t in texts]
+    logger.debug(
+        "indexer | chunk sizes: min=%d  avg=%d  max=%d",
+        min(sizes) if sizes else 0,
+        sum(sizes) // len(sizes) if sizes else 0,
+        max(sizes) if sizes else 0,
+    )
+
     vectors = _embed(texts)
 
-    # Build Qdrant points
+    # Build Qdrant points with enriched metadata
     points = [
         PointStruct(
             id=i,
             vector=vec.tolist() if hasattr(vec, "tolist") else vec,
-            payload={"source": all_chunks[i]["source"], "text": all_chunks[i]["text"]},
+            payload={
+                "source": nodes[i].metadata.get("source", "?"),
+                "text": nodes[i].get_content(),
+            },
         )
         for i, vec in enumerate(vectors)
     ]
 
     await upsert_points(points)
-    logger.info("indexer | indexed %d points into '%s'", len(points), settings.qdrant_collection_name)
+    logger.info(
+        "indexer | indexed %d points into '%s'",
+        len(points),
+        settings.qdrant_collection_name,
+    )
     return len(points)
 
 
