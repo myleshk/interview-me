@@ -26,7 +26,7 @@ interview-me/
 │   │   │   └── routes_cv.py      # /v1/cv/download (static PDF)
 │   │   ├── core/
 │   │   │   ├── config.py         # Environment variables & Pydantic settings
-│   │   │   ├── identity.py       # Hardcoded facts (Name, Skills JSON)
+│   │   │   ├── identity.py       # Loads core profile from data/identity.json
 │   │   │   ├── security.py       # API Key / CORS validation
 │   │   │   └── rate_limit.py     # Per-IP sliding window rate limiter
 │   │   ├── ai/
@@ -36,9 +36,10 @@ interview-me/
 │   │   │   └── prompts.py        # System prompt templates
 │   │   └── main.py               # Wires the routers together
 │   ├── data/
+│   │   ├── identity.json          # Core facts (name, role, company, location)
 │   │   ├── static/               # Served to users (e.g. cv.pdf)
 │   │   └── knowledge/            # AI knowledge base (→ Qdrant)
-│   │       └── *.md              # your markdown files
+│   │       └── *.md              # Detailed profile (skills, projects, bio, etc.)
 │   ├── Dockerfile                # Builds ONLY the Python backend
 │   └── requirements.txt
 ├── web/                          # Frontend (Next.js/React/Vue)
@@ -188,10 +189,12 @@ StartEvent → [retrieve] → RetrievedEvent → [synthesize] → StopEvent
 
 | Step | What it does | Current status |
 |------|-------------|----------------|
-| **retrieve** | Pulls relevant context from Qdrant hybrid search | Mock (4 static chunks) |
+| **retrieve** | Embeds the query with FastEmbed, searches Qdrant via hybrid search, returns relevant context chunks | Live |
 | **synthesize** | Calls DeepSeek with identity-grounded system prompt + context, streams tokens | Live |
 
-The **identity** from `app/core/identity.py` is injected into the system prompt on every request, so the model always knows who it represents and never fabricates personal details.
+The **core identity** from ``api/data/identity.json`` (name, role, company, location) is loaded by ``app/core/identity.py`` and injected into the system prompt on every request — the model always knows who it represents and never fabricates personal details.
+
+The **rich knowledge base** lives in ``api/data/knowledge/*.md`` files. Run ``python -m app.ai.indexer`` to index them into Qdrant — the workflow then retrieves relevant chunks at query time for skills, projects, experience, and bio.
 
 ## Configuration
 
@@ -230,8 +233,9 @@ def _get_llm_client(self) -> AsyncOpenAI: ...
 
 ## Roadmap
 
-- [ ] Wire Qdrant hybrid search into the `retrieve` step (replace mock)
-- [ ] Run `indexer.py` on startup to populate Qdrant from Markdown files
+- [x] Wire Qdrant hybrid search into the `retrieve` step
+- [x] Move identity to `data/identity.json` (core facts only)
+- [ ] Run `indexer.py` on startup to auto-populate Qdrant from Markdown files
 - [ ] Add FastEmbed dense + sparse vector indexing
 - [ ] Conversation memory (session history)
 - [ ] Frontend (Next.js / React / Vue)

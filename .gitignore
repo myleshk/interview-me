@@ -32,9 +32,9 @@ Thumbs.db
 qdrant_storage/
 
 # Personal data — NOT checked into public repo
-api/data/knowledge/*.md
-!api/data/knowledge/README.md
-api/data/static/cv.pdf
+api/data/
+!api/data/**/README.md
+!api/data/**/*.example
 
 # Logs
 *.log

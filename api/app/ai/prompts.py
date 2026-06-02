@@ -10,7 +10,12 @@ from app.core.identity import IDENTITY
 
 
 def build_system_prompt(context_chunks: list[str] | None = None) -> str:
-    """Build the full system prompt with identity + optional RAG context.
+    """Build the full system prompt with core identity + optional RAG context.
+
+    Only the barest facts come from ``identity.json`` — name, role, company,
+    location.  Everything else (skills, education, projects, bio, languages)
+    must come from retrieved RAG context.  The model is explicitly instructed
+    to NEVER fabricate.
 
     Args:
         context_chunks: Retrieved text chunks from Qdrant (if any).
@@ -18,38 +23,36 @@ def build_system_prompt(context_chunks: list[str] | None = None) -> str:
     Returns:
         A fully assembled system message string.
     """
-    skills_bullet = "\n".join(
-        f"  - [{s['tier']}] {s['name']}" for s in IDENTITY["ranked_skills"]
-    )
-    langs_bullet = "\n".join(
-        f"  - {l['name']} ({l['level']})" for l in IDENTITY["languages"]
-    )
-    projects_bullet = "\n".join(f"  - {p}" for p in IDENTITY["projects"])
-    edu_bullet = "\n".join(
-        f"  - {e['degree']} — {e['school']}" for e in IDENTITY["education"]
-    )
-
     prompt = (
-        "You are the interview-me avatar of the following person. "
-        "Never fabricate personal details — use ONLY the facts below.\n\n"
+        "You ARE this person. Speak in first person as yourself — "
+        "naturally, directly, as if you're talking about your own life "
+        "and work in an interview. Never use meta-commentary like "
+        "'Based on the information I have', 'According to my knowledge "
+        "base', 'The context suggests', 'I can tell you that', or any "
+        "similar qualifier. Just answer directly.\n\n"
+        "Never fabricate personal details — use ONLY the facts below "
+        "and your knowledge.\n\n"
         f"**Name:** {IDENTITY['full_name']}\n"
         f"**Title:** {IDENTITY['job_title']} @ {IDENTITY['employer']}\n"
         f"**Location:** {IDENTITY['location']}\n"
-        f"**Bio:** {IDENTITY['bio']}\n\n"
-        f"**Education:**\n{edu_bullet}\n\n"
-        f"**Technical Skills (tier 1 = strongest):**\n{skills_bullet}\n\n"
-        f"**Languages:**\n{langs_bullet}\n\n"
-        f"**Projects:**\n{projects_bullet}\n"
     )
 
     if context_chunks:
         context_block = "\n\n".join(context_chunks)
         prompt += (
-            "\n\n--- Retrieved Context ---\n"
+            "\n--- Your Knowledge ---\n"
             f"{context_block}\n"
-            "--- End Context ---\n\n"
-            "Use the retrieved context to answer accurately. "
-            "If the context doesn't contain the answer, say so honestly."
+            "--- End Knowledge ---\n\n"
+            "Use the above as your own knowledge to answer questions. "
+            "If the knowledge doesn't contain the answer, say so honestly — "
+            "do NOT guess or fabricate."
+        )
+    else:
+        prompt += (
+            "\nYou have no additional knowledge loaded for this query. "
+            "Stick to your core identity above. "
+            "If asked about skills, experience, projects, or anything beyond "
+            "name/role/company/location, honestly say you don't recall."
         )
 
     return prompt

@@ -4,7 +4,7 @@ Architecture::
 
     StartEvent → [retrieve] → RetrievedEvent → [synthesize] → StopEvent
 
-- **retrieve**  — Queries Qdrant hybrid search (or returns mock chunks).
+- **retrieve**  — Queries Qdrant hybrid search with dense embeddings.
 - **synthesize** — Streams a response from DeepSeek with identity-grounded
   system prompt + retrieved context.
 
@@ -17,12 +17,14 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
+from fastembed import TextEmbedding
 from openai import AsyncOpenAI
 from workflows import Context, Workflow, step
 from workflows.events import Event, StartEvent, StopEvent
 
 from app.core.config import settings
 from app.ai.prompts import build_system_prompt
+from app.ai.qdrant import hybrid_search
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +46,7 @@ class AvatarWorkflow(Workflow):
     """Event-driven RAG workflow backed by LlamaIndex Workflows.
 
     Steps:
-        1. ``retrieve``   — pull relevant context from Qdrant (mock for now).
+        1. ``retrieve``   — embed query, search Qdrant, return chunks.
         2. ``synthesize`` — stream a response from DeepSeek with
            identity-grounded system prompt + context.
     """
@@ -52,6 +54,7 @@ class AvatarWorkflow(Workflow):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._llm_client: AsyncOpenAI | None = None
+        self._embed_model: TextEmbedding | None = None
 
     # ── Lazy LLM client ────────────────────────────────────
 
@@ -65,6 +68,16 @@ class AvatarWorkflow(Workflow):
             )
         return self._llm_client
 
+    # ── Lazy embedding model ───────────────────────────────
+
+    def _get_embed_model(self) -> TextEmbedding:
+        """Lazy-init the FastEmbed model (local, no API call)."""
+        if self._embed_model is None:
+            self._embed_model = TextEmbedding(
+                model_name=settings.embedding_model_name
+            )
+        return self._embed_model
+
     # ── Step 1: Retrieve ─────────────────────────────────────
 
     @step
@@ -73,27 +86,36 @@ class AvatarWorkflow(Workflow):
         ctx: Context,
         ev: StartEvent,
     ) -> RetrievedEvent:
-        """Retrieve relevant context for the query.
+        """Embed the query, search Qdrant, return relevant chunks.
 
-        Currently returns mock chunks. Wire up
-        ``app.ai.qdrant.hybrid_search()`` when Qdrant is populated.
+        Falls back to an empty context list when Qdrant is unreachable
+        or contains no indexed data — the identity in the system prompt
+        remains available as the anti-hallucination baseline.
         """
         query: str = ev.get("query", "")
 
-        # TODO: Replace with real Qdrant hybrid search
-        # from app.ai.qdrant import hybrid_search
-        # results = await hybrid_search(query_vector=..., limit=5)
-        # context_chunks = [r["text"] for r in results]
+        try:
+            model = self._get_embed_model()
+            query_vectors = list(model.embed([query]))
+            query_vector = query_vectors[0].tolist() if hasattr(query_vectors[0], "tolist") else query_vectors[0]
 
-        mock_chunks: list[str] = [
-            f"[MOCK] Retrieved context for query: '{query}'",
-            "[MOCK] Myles Fang is a Senior Backend Software Engineer at Melco Resorts, Hong Kong.",
-            "[MOCK] Core stack: Java Spring Boot, Go (Gin/Echo), MySQL, Next.js, React Native.",
-            "[MOCK] Active projects: hk-independent-bus-eta, transfer-hk, Dify interview bot.",
-        ]
+            results = await hybrid_search(
+                query_vector=list(query_vector),
+                limit=5,
+            )
+        except Exception:
+            logger.exception("retrieve | Qdrant search failed — returning empty context")
+            results = []
 
-        logger.info("retrieve | query=%s  chunks=%d", query, len(mock_chunks))
-        return RetrievedEvent(query=query, context_chunks=mock_chunks)
+        context_chunks = [r.get("text", "") for r in results if r.get("text")]
+
+        logger.info(
+            "retrieve | query=%s  results=%d  chunks=%d",
+            query,
+            len(results),
+            len(context_chunks),
+        )
+        return RetrievedEvent(query=query, context_chunks=context_chunks)
 
     # ── Step 2: Synthesize ───────────────────────────────────
 
