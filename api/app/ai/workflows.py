@@ -2,9 +2,10 @@
 
 Architecture::
 
-    StartEvent → [retrieve] → RetrievedEvent → [synthesize] → StopEvent
+    StartEvent → [rewrite] → [retrieve] → RetrievedEvent → [synthesize] → StopEvent
 
-- **retrieve**  — Queries Qdrant hybrid search with dense embeddings.
+- **rewrite**   — Expands the user query via DeepSeek for better retrieval.
+- **retrieve**  — Embeds rewritten query, searches Qdrant with dense vectors.
 - **synthesize** — Streams a response from DeepSeek with identity-grounded
   system prompt + retrieved context.
 
@@ -28,6 +29,17 @@ from app.ai.qdrant import hybrid_search
 
 logger = logging.getLogger(__name__)
 
+# ── Query rewriting prompt ─────────────────────────────────
+
+QUERY_REWRITE_PROMPT = (
+    "You are a search query generator. Expand the user's question "
+    "into a concise, keyword-rich search query designed for semantic "
+    "vector search. Include synonyms, related concepts, and specific "
+    "terms a recruiter might ask about (skills, roles, companies, "
+    "projects, technologies). Output ONLY the expanded query — no "
+    "explanation, no preamble, no markdown."
+)
+
 
 # ── Custom Events ──────────────────────────────────────────
 
@@ -46,8 +58,9 @@ class AvatarWorkflow(Workflow):
     """Event-driven RAG workflow backed by LlamaIndex Workflows.
 
     Steps:
-        1. ``retrieve``   — embed query, search Qdrant, return chunks.
-        2. ``synthesize`` — stream a response from DeepSeek with
+        1. ``rewrite``    — expand the user query via DeepSeek for better retrieval.
+        2. ``retrieve``   — embed rewritten query, search Qdrant, return chunks.
+        3. ``synthesize`` — stream a response from DeepSeek with
            identity-grounded system prompt + context.
     """
 
@@ -78,6 +91,35 @@ class AvatarWorkflow(Workflow):
             )
         return self._embed_model
 
+    # ── Query rewriting ────────────────────────────────────
+
+    async def _rewrite_query(self, query: str) -> str:
+        """Expand the user query via DeepSeek for better vector search recall.
+
+        Returns the original query unchanged if the LLM call fails.
+        """
+        try:
+            llm_client = self._get_llm_client()
+            response = await llm_client.chat.completions.create(
+                model=settings.deepseek_model,
+                messages=[
+                    {"role": "system", "content": QUERY_REWRITE_PROMPT},
+                    {"role": "user", "content": query},
+                ],
+                temperature=0.0,
+                max_tokens=120,
+            )
+            expanded = response.choices[0].message.content.strip()
+            logger.debug(
+                "retrieve | query_rewrite  original=%r → expanded=%r",
+                query,
+                expanded,
+            )
+            return expanded if expanded else query
+        except Exception:
+            logger.exception("retrieve | query rewrite failed — using original")
+            return query
+
     # ── Step 1: Retrieve ─────────────────────────────────────
 
     @step
@@ -94,9 +136,12 @@ class AvatarWorkflow(Workflow):
         """
         query: str = ev.get("query", "")
 
+        # Step 1a: Rewrite the query for better retrieval
+        expanded_query = await self._rewrite_query(query)
+
         try:
             model = self._get_embed_model()
-            query_vectors = list(model.embed([query]))
+            query_vectors = list(model.embed([expanded_query]))
             query_vector = query_vectors[0].tolist() if hasattr(query_vectors[0], "tolist") else query_vectors[0]
 
             results = await hybrid_search(
