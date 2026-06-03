@@ -31,11 +31,6 @@ Thumbs.db
 # Qdrant local storage (if running without Docker)
 qdrant_storage/
 
-# Personal data — NOT checked into public repo
-api/data/
-!api/data/**/README.md
-!api/data/**/*.example
-
 # Logs
 *.log
 
