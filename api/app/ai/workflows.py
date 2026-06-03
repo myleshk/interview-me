@@ -101,7 +101,7 @@ class AvatarWorkflow(Workflow):
 
             results = await hybrid_search(
                 query_vector=list(query_vector),
-                limit=5,
+                limit=15,
             )
         except Exception:
             logger.exception("retrieve | Qdrant search failed — returning empty context")

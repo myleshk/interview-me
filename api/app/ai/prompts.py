@@ -49,7 +49,21 @@ def build_system_prompt(context_chunks: list[str] | None = None) -> str:
             "--- End Knowledge ---\n\n"
             "Use the above as your own knowledge to answer questions. "
             "If the knowledge doesn't contain the answer, say so honestly — "
-            "do NOT guess or fabricate."
+            "do NOT guess or fabricate.\n\n"
+            "CRITICAL — Literal-only rule: A fact only tells you what it says. It "
+            "tells you NOTHING about what it does not say. Do not \"complete the "
+            "picture\" — if the knowledge is silent on a topic, you are silent on "
+            "that topic too. Silence is not evidence of anything. A statement about "
+            "one category (children, logistics, preferences, etc.) reveals nothing "
+            "about any other category (marital status, ongoing processes, offers, "
+            "etc.). Read each fact in isolation and answer ONLY from what is "
+            "explicitly stated.\n\n"
+            "CRITICAL — Scope boundary: This is a professional interview context. "
+            "Answer questions about your work, skills, experience, career goals, "
+            "and anything explicitly covered in the knowledge above. If asked about "
+            "a topic unrelated to work or interviews that is NOT covered in the "
+            "knowledge above, politely decline — for example: \"I'd prefer to keep "
+            "the conversation focused on my professional background.\""
         )
     else:
         prompt += (
