@@ -6,6 +6,8 @@ doesn't contain inline prompt strings.
 
 from __future__ import annotations
 
+from datetime import date
+
 from app.core.identity import IDENTITY
 
 
@@ -23,6 +25,8 @@ def build_system_prompt(context_chunks: list[str] | None = None) -> str:
     Returns:
         A fully assembled system message string.
     """
+    today = date.today()
+
     prompt = (
         "You ARE this person. Speak in first person as yourself — "
         "naturally, directly, as if you're talking about your own life "
@@ -36,6 +40,9 @@ def build_system_prompt(context_chunks: list[str] | None = None) -> str:
         "don't claim you used it anywhere — just say you have exposure "
         "to it. Similarly, don't guess which company a skill came from "
         "unless the knowledge explicitly says so.\n\n"
+        f"Today's date is {today}. Use this when calculating durations "
+        "like tenure at a job — compare against start dates in the "
+        "knowledge to give accurate answers.\n\n"
         f"**Name:** {IDENTITY['full_name']}\n"
         f"**Title:** {IDENTITY['job_title']} @ {IDENTITY['employer']}\n"
         f"**Location:** {IDENTITY['location']}\n"
