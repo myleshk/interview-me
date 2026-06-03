@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     # ── DeepSeek / OpenAI-compatible LLM ───────────────────
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com/v1"
-    deepseek_model: str = "deepseek-chat"
+    deepseek_model: str = "deepseek-v4-flash"
 
     # ── Qdrant Vector Store ────────────────────────────────
     qdrant_url: str = "http://localhost:6333"

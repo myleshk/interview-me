@@ -156,7 +156,7 @@ curl http://localhost:8000/v1/health
 ```
 
 ```json
-{ "status": "ok", "model": "deepseek-chat", "uptime_seconds": 42.5 }
+{ "status": "ok", "model": "deepseek-v4-flash", "uptime_seconds": 42.5 }
 ```
 
 ### `GET /v1/metrics`
@@ -168,7 +168,7 @@ curl http://localhost:8000/v1/metrics
 ```
 
 ```json
-{ "total_requests": 17, "uptime_seconds": 120.3, "model": "deepseek-chat" }
+{ "total_requests": 17, "uptime_seconds": 120.3, "model": "deepseek-v4-flash" }
 ```
 
 ### `POST /v1/debug/retrieve`
@@ -225,7 +225,7 @@ All settings live in `api/app/core/config.py` and can be overridden via `.env` o
 |----------|---------|-------------|
 | `DEEPSEEK_API_KEY` | *(empty)* | **Required.** Your DeepSeek API key |
 | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com/v1` | OpenAI-compatible base URL |
-| `DEEPSEEK_MODEL` | `deepseek-chat` | Model name |
+| `DEEPSEEK_MODEL` | `deepseek-v4-flash` | Model name |
 | `QDRANT_URL` | `http://localhost:6333` | Qdrant REST endpoint |
 | `QDRANT_COLLECTION_NAME` | `interview_me` | Collection name |
 | `QDRANT_API_KEY` | *(none)* | Qdrant API key (if auth is enabled) |
