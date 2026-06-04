@@ -50,9 +50,22 @@ async def ensure_collection() -> None:
 
     Enables both dense vectors (FastEmbed) and sparse vectors
     (BM25-style) for Qdrant hybrid search.
+
+    If Qdrant is unreachable (e.g. still starting up), logs a
+    warning instead of crashing the app. The collection will be
+    created on the first successful search request instead.
     """
     client = get_qdrant_client()
-    collections = await client.get_collections()
+    try:
+        collections = await client.get_collections()
+    except Exception as exc:
+        logger.warning(
+            "qdrant | unreachable during startup (%s) — "
+            "collection will be ensured on first request",
+            exc,
+        )
+        return
+
     names = [c.name for c in collections.collections]
 
     if settings.qdrant_collection_name in names:
@@ -106,6 +119,13 @@ async def hybrid_search(
         List of payload dicts from matching points.
     """
     client = get_qdrant_client()
+
+    # Ensure collection exists (handles the case where startup ensure
+    # failed because Qdrant wasn't ready yet).
+    try:
+        await ensure_collection()
+    except Exception:
+        logger.debug("hybrid_search | ensure_collection failed (may already exist)")
 
     # Build the search query — dense only for now; sparse added when indexer is wired.
     results = await client.query_points(
