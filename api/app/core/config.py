@@ -26,8 +26,8 @@ class Settings(BaseSettings):
     qdrant_collection_name: str = "interview_me"
     qdrant_api_key: str | None = None
 
-    # ── FastEmbed (local) ──────────────────────────────────
-    embedding_model_name: str = "BAAI/bge-small-en-v1.5"
+    # ── Embedding Service ──────────────────────────────────
+    embedding_service_url: str = "http://embedding:8080"
     embedding_dim: int = 384
 
     # ── API ────────────────────────────────────────────────

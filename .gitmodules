@@ -1,3 +1,0 @@
-[submodule "api/data"]
-	path = api/data
-	url = git@github.com:myleshk/interview-me-data.git

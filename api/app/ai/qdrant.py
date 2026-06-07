@@ -2,8 +2,10 @@
 
 Provides a singleton client and high-level functions for:
 - Creating / ensuring collections exist
-- Upserting points with dense + sparse vectors (hybrid search)
 - Querying with hybrid search
+
+Note: indexing (upsert) lives in the separate ``interview-me-data`` repo.
+The API is a read-only Qdrant consumer.
 
 Requires Qdrant to be running (see ``docker-compose.yml``).
 """
@@ -11,13 +13,11 @@ Requires Qdrant to be running (see ``docker-compose.yml``).
 from __future__ import annotations
 
 import logging
-from contextlib import asynccontextmanager
 from typing import Any
 
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import (
     Distance,
-    PointStruct,
     SparseVectorParams,
     VectorParams,
 )
@@ -48,7 +48,7 @@ def get_qdrant_client() -> AsyncQdrantClient:
 async def ensure_collection() -> None:
     """Create the collection if it doesn't already exist.
 
-    Enables both dense vectors (FastEmbed) and sparse vectors
+    Enables both dense vectors and sparse vectors
     (BM25-style) for Qdrant hybrid search.
 
     If Qdrant is unreachable (e.g. still starting up), logs a
@@ -85,21 +85,6 @@ async def ensure_collection() -> None:
     logger.info("qdrant | created collection '%s'", settings.qdrant_collection_name)
 
 
-# ── Upsert ────────────────────────────────────────────────
-
-
-async def upsert_points(
-    points: list[PointStruct],
-) -> None:
-    """Batch-upsert points into the avatar collection."""
-    client = get_qdrant_client()
-    await client.upsert(
-        collection_name=settings.qdrant_collection_name,
-        points=points,
-    )
-    logger.info("qdrant | upserted %d points", len(points))
-
-
 # ── Hybrid search ─────────────────────────────────────────
 
 
@@ -111,7 +96,7 @@ async def hybrid_search(
     """Perform a hybrid (dense + sparse) search.
 
     Args:
-        query_vector: Dense embedding from FastEmbed.
+        query_vector: Dense embedding vector.
         sparse_vector: Optional BM25 sparse vector.
         limit: Max number of results.
 

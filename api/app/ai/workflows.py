@@ -17,7 +17,7 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from fastembed import TextEmbedding
+import httpx
 from openai import AsyncOpenAI
 from workflows import Context, Workflow, step
 from workflows.events import Event, StartEvent, StopEvent
@@ -54,7 +54,14 @@ class AvatarWorkflow(Workflow):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._llm_client: AsyncOpenAI | None = None
-        self._embed_model: TextEmbedding | None = None
+        self._http: httpx.AsyncClient | None = None
+
+    # ── Lazy HTTP client ───────────────────────────────────
+
+    def _get_http(self) -> httpx.AsyncClient:
+        if self._http is None:
+            self._http = httpx.AsyncClient(timeout=httpx.Timeout(30.0))
+        return self._http
 
     # ── Lazy LLM client ────────────────────────────────────
 
@@ -68,15 +75,17 @@ class AvatarWorkflow(Workflow):
             )
         return self._llm_client
 
-    # ── Lazy embedding model ───────────────────────────────
+    # ── Embedding (remote service) ─────────────────────────
 
-    def _get_embed_model(self) -> TextEmbedding:
-        """Lazy-init the FastEmbed model (local, no API call)."""
-        if self._embed_model is None:
-            self._embed_model = TextEmbedding(
-                model_name=settings.embedding_model_name
-            )
-        return self._embed_model
+    async def _embed_query(self, query: str) -> list[float]:
+        """Embed a query string via the remote embedding service."""
+        resp = await self._get_http().post(
+            f"{settings.embedding_service_url}/v1/embeddings",
+            json={"input": query},
+        )
+        resp.raise_for_status()
+        body = resp.json()
+        return list(body["data"][0]["embedding"])
 
     # ── Step 1: Retrieve ─────────────────────────────────────
 
@@ -95,12 +104,10 @@ class AvatarWorkflow(Workflow):
         query: str = ev.get("query", "")
 
         try:
-            model = self._get_embed_model()
-            query_vectors = list(model.embed([query]))
-            query_vector = query_vectors[0].tolist() if hasattr(query_vectors[0], "tolist") else query_vectors[0]
+            query_vector = await self._embed_query(query)
 
             results = await hybrid_search(
-                query_vector=list(query_vector),
+                query_vector=query_vector,
                 limit=15,
             )
         except Exception:

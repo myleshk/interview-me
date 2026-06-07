@@ -1,6 +1,6 @@
 # interview-me
 
-An open-source AI interview portfolio monorepo. A FastAPI + LlamaIndex Workflows backend powers an identity-grounded, RAG-augmented interview avatar with streaming responses. Qdrant for hybrid vector search, DeepSeek for generation, and FastEmbed for local embeddings.
+An open-source AI interview portfolio. A FastAPI + LlamaIndex Workflows backend powers an identity-grounded, RAG-augmented interview avatar with streaming responses. Qdrant for hybrid vector search, DeepSeek for generation, and a dedicated embedding microservice for vector generation. Personal data lives in a separate [interview-me-data](https://github.com/myleshk/interview-me-data) repo.
 
 ## Tech Stack
 
@@ -10,7 +10,7 @@ An open-source AI interview portfolio monorepo. A FastAPI + LlamaIndex Workflows
 | Orchestration | LlamaIndex Workflows (async, event-driven) |
 | Vector Store | Qdrant (hybrid search) |
 | LLM | DeepSeek (via OpenAI SDK, `https://api.deepseek.com/v1`) |
-| Embeddings | FastEmbed — `BAAI/bge-small-en-v1.5` (local, 384-dim) |
+| Embeddings | Embedding microservice — `BAAI/bge-small-en-v1.5` (384-dim) |
 | Frontend | *(coming soon)* Next.js / React / Vue |
 
 ## Project Structure
@@ -31,8 +31,7 @@ interview-me/
 │   │   │   └── rate_limit.py     # Per-IP sliding window rate limiter
 │   │   ├── ai/
 │   │   │   ├── workflows.py      # LlamaIndex event-driven workflow
-│   │   │   ├── qdrant.py         # Vector DB connection & queries
-│   │   │   ├── indexer.py        # Markdown → vectors pipeline
+│   │   │   ├── qdrant.py         # Vector DB connection & queries (read-only)
 │   │   │   └── prompts.py        # System prompt templates
 │   │   └── main.py               # Wires the routers together
 │   ├── data/
@@ -44,12 +43,13 @@ interview-me/
 │   └── requirements.txt
 ├── web/                          # Frontend (Next.js/React/Vue)
 │   └── src/
+├── embedding/                    # Embedding microservice (FastEmbed + FastAPI)
 ├── k8s/                          # Kubernetes Manifests
 │   ├── api-deployment.yaml
 │   ├── web-deployment.yaml
 │   ├── qdrant-statefulset.yaml
 │   └── ingress.yaml
-├── docker-compose.yml            # Local dev stack (API, Qdrant)
+├── docker-compose.yml            # Local dev stack (API, embedding, Qdrant)
 └── README.md
 ```
 
@@ -194,7 +194,7 @@ curl -X POST http://localhost:8000/v1/debug/retrieve \
 
 ### `GET /v1/cv/download`
 
-Download the owner's CV as a PDF file. Place your PDF at `api/data/static/cv.pdf`.
+Download the owner's CV as a PDF file. Place your PDF at `data/static/cv.pdf` (mounted from the [interview-me-data](https://github.com/myleshk/interview-me-data) repo).
 
 ```bash
 curl -O http://localhost:8000/v1/cv/download
@@ -210,12 +210,12 @@ StartEvent → [retrieve] → RetrievedEvent → [synthesize] → StopEvent
 
 | Step | What it does | Current status |
 |------|-------------|----------------|
-| **retrieve** | Embeds the query with FastEmbed, searches Qdrant via hybrid search, returns relevant context chunks | Live |
+| **retrieve** | Embeds the query via the embedding service, searches Qdrant via hybrid search, returns relevant context chunks | Live |
 | **synthesize** | Calls DeepSeek with identity-grounded system prompt + context, streams tokens | Live |
 
-The **core identity** from ``api/data/identity.json`` (name, role, company, location) is loaded by ``app/core/identity.py`` and injected into the system prompt on every request — the model always knows who it represents and never fabricates personal details.
+The **core identity** from ``data/identity.json`` (name, role, company, location) is loaded by ``app/core/identity.py`` and injected into the system prompt on every request — the model always knows who it represents and never fabricates personal details. In Docker, the file is mounted from the [data repo](https://github.com/myleshk/interview-me-data); for local dev, set ``DATA_DIR`` to point at your data repo clone.
 
-The **rich knowledge base** lives in ``api/data/knowledge/*.md`` files. Run ``python -m app.ai.indexer`` to index them into Qdrant — the workflow then retrieves relevant chunks at query time for skills, projects, experience, and bio.
+The **rich knowledge base** lives in ``data/knowledge/*.md`` files (in the [interview-me-data](https://github.com/myleshk/interview-me-data) repo). The standalone indexer in that repo clears and reloads Qdrant from these files on every deploy — the workflow then retrieves relevant chunks at query time for skills, projects, experience, and bio.
 
 ## Configuration
 
@@ -229,8 +229,9 @@ All settings live in `api/app/core/config.py` and can be overridden via `.env` o
 | `QDRANT_URL` | `http://localhost:6333` | Qdrant REST endpoint |
 | `QDRANT_COLLECTION_NAME` | `interview_me` | Collection name |
 | `QDRANT_API_KEY` | *(none)* | Qdrant API key (if auth is enabled) |
-| `EMBEDDING_MODEL_NAME` | `BAAI/bge-small-en-v1.5` | FastEmbed model |
+| `EMBEDDING_SERVICE_URL` | `http://embedding:8080` | Embedding service URL |
 | `EMBEDDING_DIM` | `384` | Embedding dimension |
+| `DATA_DIR` | *(auto)* | Path to data repo (identity.json + static/) |
 | `API_KEY` | *(none)* | Optional bearer-token gate (leave empty to disable) |
 | `ALLOWED_ORIGINS` | `["*"]` | CORS allowed origins |
 | `RATE_LIMIT_REQUESTS` | `30` | Max requests per window |
@@ -256,8 +257,8 @@ def _get_llm_client(self) -> AsyncOpenAI: ...
 
 - [x] Wire Qdrant hybrid search into the `retrieve` step
 - [x] Move identity to `data/identity.json` (core facts only)
-- [ ] Run `indexer.py` on startup to auto-populate Qdrant from Markdown files
-- [ ] Add FastEmbed dense + sparse vector indexing
+- [x] Move indexer to separate [interview-me-data](https://github.com/myleshk/interview-me-data) repo
+- [ ] Add dense + sparse vector indexing via embedding service
 - [ ] Conversation memory (session history)
 - [ ] Frontend (Next.js / React / Vue)
 - [ ] Kubernetes manifests for production deployment

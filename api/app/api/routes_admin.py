@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from time import monotonic
 
+import httpx
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
@@ -94,16 +95,19 @@ async def debug_retrieve(body: RetrieveDebugRequest) -> RetrieveDebugResponse:
     Useful for iterating on your ``data/knowledge/*.md`` content and
     verifying which chunks surface for a given query.
     """
-    from fastembed import TextEmbedding
-
     from app.ai.qdrant import hybrid_search
 
-    model = TextEmbedding(model_name=settings.embedding_model_name)
-    query_vectors = list(model.embed([body.query]))
-    query_vector = query_vectors[0].tolist() if hasattr(query_vectors[0], "tolist") else query_vectors[0]
+    # Call the remote embedding service
+    resp = httpx.post(
+        f"{settings.embedding_service_url}/v1/embeddings",
+        json={"input": body.query},
+        timeout=httpx.Timeout(30.0),
+    )
+    resp.raise_for_status()
+    query_vector = list(resp.json()["data"][0]["embedding"])
 
     results = await hybrid_search(
-        query_vector=list(query_vector),
+        query_vector=query_vector,
         limit=body.limit,
     )
 
