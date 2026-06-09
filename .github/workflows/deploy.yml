@@ -1,0 +1,169 @@
+name: Build & Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # allow manual trigger
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME_API: ${{ github.repository }}-api
+  IMAGE_NAME_EMBEDDING: ${{ github.repository }}-embedding
+  IMAGE_NAME_INDEXER: ${{ github.repository }}-indexer
+  CONFIG_REPO: myleshk/k0s-config
+  CONFIG_APP_PATH: jp-3/interview-me
+
+jobs:
+  # ── Build & Push Docker Images ─────────────────────────────
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - context: ./api
+            image: ${{ github.repository }}-api
+          - context: ./embedding
+            image: ${{ github.repository }}-embedding
+          - context: ./indexer
+            image: ${{ github.repository }}-indexer
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ matrix.service.image }}
+          tags: |
+            type=sha,prefix=,format=short
+
+      - name: Build & Push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service.context }}
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── GitOps: Update Config Repo ────────────────────────────
+
+  update-config:
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout config repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.CONFIG_REPO }}
+          token: ${{ secrets.CONFIG_REPO_PAT }}
+          path: config-repo
+
+      - name: Update image refs in config repo
+        working-directory: config-repo/${{ env.CONFIG_APP_PATH }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          config_dir = Path(".")
+          sha_short = os.environ["GITHUB_SHA"][:7]
+          registry = os.environ["REGISTRY"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+
+          api_image = f"{registry}/{repo}-api:{sha_short}"
+          embedding_image = f"{registry}/{repo}-embedding:{sha_short}"
+          indexer_image = f"{registry}/{repo}-indexer:{sha_short}"
+
+          def replace_named_container_image(text: str, container_name: str, image: str) -> str:
+              pattern = rf"(- name: {re.escape(container_name)}\n\s+image: )[^\n]+"
+              updated, count = re.subn(pattern, rf"\1{image}", text, count=1)
+              if count != 1:
+                  raise SystemExit(f"Could not update image for container '{container_name}'")
+              return updated
+
+          configmap_path = config_dir / "configmap.yaml"
+          configmap_text = configmap_path.read_text(encoding="utf-8")
+          match = re.search(r'^\s*DATA_REPO_COMMIT:\s*"([^"]+)"', configmap_text, re.MULTILINE)
+          if not match:
+              raise SystemExit("DATA_REPO_COMMIT not found in configmap.yaml")
+          data_commit = match.group(1)
+
+          api_path = config_dir / "api.yaml"
+          api_text = api_path.read_text(encoding="utf-8")
+          api_text = replace_named_container_image(api_text, "api", api_image)
+          api_path.write_text(api_text, encoding="utf-8")
+
+          embedding_path = config_dir / "embedding.yaml"
+          embedding_text = embedding_path.read_text(encoding="utf-8")
+          embedding_text = replace_named_container_image(embedding_text, "embedding", embedding_image)
+          embedding_path.write_text(embedding_text, encoding="utf-8")
+
+          indexer_path = config_dir / "indexer.yaml"
+          if indexer_path.exists():
+              indexer_text = indexer_path.read_text(encoding="utf-8")
+              indexer_text = replace_named_container_image(indexer_text, "indexer", indexer_image)
+              indexer_text, name_count = re.subn(
+                  r'(^\s*name:\s*)interview-me-indexer-[^\n]+',
+                  rf'\g<1>interview-me-indexer-{data_commit}-{sha_short}',
+                  indexer_text,
+                  count=1,
+                  flags=re.MULTILINE,
+              )
+              indexer_text, tag_count = re.subn(
+                  r'(^\s*interview-me/indexer-tag:\s*")[^"]+(")',
+                  rf'\g<1>{sha_short}\g<2>',
+                  indexer_text,
+                  count=1,
+                  flags=re.MULTILINE,
+              )
+              if name_count != 1 or tag_count != 1:
+                  raise SystemExit("Could not update indexer job identity in indexer.yaml")
+              indexer_path.write_text(indexer_text, encoding="utf-8")
+          else:
+              print("indexer.yaml not found; skipping indexer manifest update")
+
+          print(f"Updated api image -> {api_image}")
+          print(f"Updated embedding image -> {embedding_image}")
+          print(f"Updated indexer image -> {indexer_image}")
+          PY
+
+      - name: Commit & Push
+        working-directory: config-repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ${{ env.CONFIG_APP_PATH }}/api.yaml \
+                  ${{ env.CONFIG_APP_PATH }}/embedding.yaml
+          if [ -f "${{ env.CONFIG_APP_PATH }}/indexer.yaml" ]; then
+            git add ${{ env.CONFIG_APP_PATH }}/indexer.yaml
+          fi
+          git diff --cached --quiet || (
+            git commit -m "chore: bump interview-me images to ${{ github.sha }}" &&
+            git push
+          )
