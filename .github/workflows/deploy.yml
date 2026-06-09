@@ -3,63 +3,69 @@ name: Build & Deploy
 on:
   push:
     branches: [main]
-  workflow_dispatch: # allow manual trigger
+  workflow_dispatch: # manual trigger → build all
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME_API: ${{ github.repository }}-api
-  IMAGE_NAME_EMBEDDING: ${{ github.repository }}-embedding
-  IMAGE_NAME_INDEXER: ${{ github.repository }}-indexer
   CONFIG_REPO: myleshk/k0s-config
   CONFIG_APP_PATH: jp-3/interview-me
 
 jobs:
-  # ── Build & Push Docker Images ─────────────────────────────
+  # ── Detect changed source directories ───────────────────────
 
-  build:
+  changes:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        service:
-          - context: ./api
-            image: ${{ github.repository }}-api
-          - context: ./embedding
-            image: ${{ github.repository }}-embedding
-          - context: ./indexer
-            image: ${{ github.repository }}-indexer
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+      embedding: ${{ steps.filter.outputs.embedding }}
+      indexer: ${{ steps.filter.outputs.indexer }}
+      workflows: ${{ steps.filter.outputs.workflows }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            api:
+              - 'api/**'
+            embedding:
+              - 'embedding/**'
+            indexer:
+              - 'indexer/**'
+            workflows:
+              - '.github/**'
+
+  # ── Build & Push: API ──────────────────────────────────────
+
+  build-api:
+    needs: changes
+    if: |
+      needs.changes.outputs.api == 'true' ||
+      needs.changes.outputs.workflows == 'true' ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Docker metadata
+      - uses: docker/metadata-action@v5
         id: meta
-        uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ matrix.service.image }}
+          images: ${{ env.REGISTRY }}/${{ github.repository }}-api
           tags: |
             type=sha,prefix=,format=short
-
-      - name: Build & Push
-        uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.service.context }}
+          context: ./api
           platforms: linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -67,13 +73,100 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # ── GitOps: Update Config Repo ────────────────────────────
+  # ── Build & Push: Embedding ────────────────────────────────
 
-  update-config:
+  build-embedding:
+    needs: changes
+    if: |
+      needs.changes.outputs.embedding == 'true' ||
+      needs.changes.outputs.workflows == 'true' ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    needs: build
     permissions:
       contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}-embedding
+          tags: |
+            type=sha,prefix=,format=short
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./embedding
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Build & Push: Indexer ──────────────────────────────────
+
+  build-indexer:
+    needs: changes
+    if: |
+      needs.changes.outputs.indexer == 'true' ||
+      needs.changes.outputs.workflows == 'true' ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}-indexer
+          tags: |
+            type=sha,prefix=,format=short
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./indexer
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── GitOps: Update Config Repo ─────────────────────────────
+
+  update-config:
+    needs: [changes, build-api, build-embedding, build-indexer]
+    if: |
+      always() &&
+      !cancelled() &&
+      (github.event_name == 'workflow_dispatch' ||
+       needs.changes.outputs.api == 'true' ||
+       needs.changes.outputs.embedding == 'true' ||
+       needs.changes.outputs.indexer == 'true' ||
+       needs.changes.outputs.workflows == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      CHANGED_API: ${{ needs.changes.outputs.api }}
+      CHANGED_EMBEDDING: ${{ needs.changes.outputs.embedding }}
+      CHANGED_INDEXER: ${{ needs.changes.outputs.indexer }}
+      CHANGED_WORKFLOWS: ${{ needs.changes.outputs.workflows }}
 
     steps:
       - name: Checkout config repo
@@ -85,6 +178,8 @@ jobs:
 
       - name: Update image refs in config repo
         working-directory: config-repo/${{ env.CONFIG_APP_PATH }}
+        env:
+          IS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           python3 - <<'PY'
           import os
@@ -96,28 +191,11 @@ jobs:
           registry = os.environ["REGISTRY"]
           repo = os.environ["GITHUB_REPOSITORY"]
 
-          api_image = f"{registry}/{repo}-api:{sha_short}"
-          embedding_image = f"{registry}/{repo}-embedding:{sha_short}"
-          indexer_image = f"{registry}/{repo}-indexer:{sha_short}"
-
-          def upsert_configmap_value(text: str, key: str, value: str) -> str:
-              pattern = rf'(^\s*{re.escape(key)}:\s*")[^"]+(")'
-              updated, count = re.subn(
-                  pattern,
-                  rf'\g<1>{value}\g<2>',
-                  text,
-                  count=1,
-                  flags=re.MULTILINE,
-              )
-              if count == 1:
-                  return updated
-
-              data_match = re.search(r'^data:\s*$', text, flags=re.MULTILINE)
-              if not data_match:
-                  raise SystemExit("Could not find ConfigMap data: section in configmap.yaml")
-
-              insert_at = data_match.end()
-              return text[:insert_at] + f'\n  {key}: "{value}"' + text[insert_at:]
+          is_dispatch = os.environ.get("IS_DISPATCH", "false") == "true"
+          changed_api = os.environ.get("CHANGED_API", "false") == "true"
+          changed_embedding = os.environ.get("CHANGED_EMBEDDING", "false") == "true"
+          changed_indexer = os.environ.get("CHANGED_INDEXER", "false") == "true"
+          changed_workflows = os.environ.get("CHANGED_WORKFLOWS", "false") == "true"
 
           def replace_named_container_image(text: str, container_name: str, image: str) -> str:
               pattern = rf"(- name: {re.escape(container_name)}\n\s+image: )[^\n]+"
@@ -126,48 +204,68 @@ jobs:
                   raise SystemExit(f"Could not update image for container '{container_name}'")
               return updated
 
-          configmap_path = config_dir / "configmap.yaml"
-          configmap_text = configmap_path.read_text(encoding="utf-8")
-          match = re.search(r'^\s*DATA_REPO_COMMIT:\s*"([^"]+)"', configmap_text, re.MULTILINE)
-          data_commit = match.group(1) if match else "unknown"
+          # Only update manifests for services that were actually built
+          do_api = is_dispatch or changed_api or changed_workflows
+          do_embedding = is_dispatch or changed_embedding or changed_workflows
+          do_indexer = is_dispatch or changed_indexer or changed_workflows
 
-          api_path = config_dir / "api.yaml"
-          api_text = api_path.read_text(encoding="utf-8")
-          api_text = replace_named_container_image(api_text, "api", api_image)
-          api_path.write_text(api_text, encoding="utf-8")
+          updated_files = []
 
-          embedding_path = config_dir / "embedding.yaml"
-          embedding_text = embedding_path.read_text(encoding="utf-8")
-          embedding_text = replace_named_container_image(embedding_text, "embedding", embedding_image)
-          embedding_path.write_text(embedding_text, encoding="utf-8")
+          if do_api:
+              api_image = f"{registry}/{repo}-api:{sha_short}"
+              api_path = config_dir / "api.yaml"
+              api_text = api_path.read_text(encoding="utf-8")
+              api_text = replace_named_container_image(api_text, "api", api_image)
+              api_path.write_text(api_text, encoding="utf-8")
+              updated_files.append("api.yaml")
+              print(f"Updated api image -> {api_image}")
 
-          indexer_path = config_dir / "indexer.yaml"
-          if indexer_path.exists():
-              indexer_text = indexer_path.read_text(encoding="utf-8")
-              indexer_text = replace_named_container_image(indexer_text, "indexer", indexer_image)
-              indexer_text, name_count = re.subn(
-                  r'(^\s*name:\s*)interview-me-indexer-[^\n]+',
-                  rf'\g<1>interview-me-indexer-{data_commit}-{sha_short}',
-                  indexer_text,
-                  count=1,
-                  flags=re.MULTILINE,
-              )
-              indexer_text, tag_count = re.subn(
-                  r'(^\s*interview-me/indexer-tag:\s*")[^"]+(")',
-                  rf'\g<1>{sha_short}\g<2>',
-                  indexer_text,
-                  count=1,
-                  flags=re.MULTILINE,
-              )
-              if name_count != 1 or tag_count != 1:
-                  raise SystemExit("Could not update indexer job identity in indexer.yaml")
-              indexer_path.write_text(indexer_text, encoding="utf-8")
-          else:
-              print("indexer.yaml not found; skipping indexer manifest update")
+          if do_embedding:
+              embedding_image = f"{registry}/{repo}-embedding:{sha_short}"
+              embedding_path = config_dir / "embedding.yaml"
+              embedding_text = embedding_path.read_text(encoding="utf-8")
+              embedding_text = replace_named_container_image(embedding_text, "embedding", embedding_image)
+              embedding_path.write_text(embedding_text, encoding="utf-8")
+              updated_files.append("embedding.yaml")
+              print(f"Updated embedding image -> {embedding_image}")
 
-          print(f"Updated api image -> {api_image}")
-          print(f"Updated embedding image -> {embedding_image}")
-          print(f"Updated indexer image -> {indexer_image}")
+          if do_indexer:
+              indexer_image = f"{registry}/{repo}-indexer:{sha_short}"
+              indexer_path = config_dir / "indexer.yaml"
+              if indexer_path.exists():
+                  # Read data commit from configmap for indexer job naming
+                  configmap_path = config_dir / "configmap.yaml"
+                  configmap_text = configmap_path.read_text(encoding="utf-8")
+                  match = re.search(r'^\s*DATA_REPO_COMMIT:\s*"([^"]+)"', configmap_text, re.MULTILINE)
+                  data_commit = match.group(1) if match else "unknown"
+
+                  indexer_text = indexer_path.read_text(encoding="utf-8")
+                  indexer_text = replace_named_container_image(indexer_text, "indexer", indexer_image)
+                  indexer_text, name_count = re.subn(
+                      r'(^\s*name:\s*)interview-me-indexer-[^\n]+',
+                      rf'\g<1>interview-me-indexer-{data_commit}-{sha_short}',
+                      indexer_text,
+                      count=1,
+                      flags=re.MULTILINE,
+                  )
+                  indexer_text, tag_count = re.subn(
+                      r'(^\s*interview-me/indexer-tag:\s*")[^"]+(")',
+                      rf'\g<1>{sha_short}\g<2>',
+                      indexer_text,
+                      count=1,
+                      flags=re.MULTILINE,
+                  )
+                  if name_count != 1 or tag_count != 1:
+                      raise SystemExit("Could not update indexer job identity in indexer.yaml")
+                  indexer_path.write_text(indexer_text, encoding="utf-8")
+                  updated_files.append("indexer.yaml")
+                  print(f"Updated indexer image -> {indexer_image}")
+              else:
+                  print("indexer.yaml not found; skipping indexer manifest update")
+
+          # Export updated file list for the commit step
+          with open(os.environ["GITHUB_ENV"], "a") as f:
+              f.write(f"UPDATED_FILES={' '.join(updated_files)}\n")
           PY
 
       - name: Commit & Push
@@ -175,11 +273,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add ${{ env.CONFIG_APP_PATH }}/api.yaml \
-                  ${{ env.CONFIG_APP_PATH }}/embedding.yaml
-          if [ -f "${{ env.CONFIG_APP_PATH }}/indexer.yaml" ]; then
-            git add ${{ env.CONFIG_APP_PATH }}/indexer.yaml
-          fi
+
+          for f in $UPDATED_FILES; do
+            git add "${{ env.CONFIG_APP_PATH }}/$f"
+          done
+
           git diff --cached --quiet || (
             SHORT_SHA=${GITHUB_SHA:0:7}
             git commit -m "chore: bump interview-me images to ${SHORT_SHA}" &&
