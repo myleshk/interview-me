@@ -23,6 +23,7 @@ Environment variables
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 from pathlib import Path
@@ -31,7 +32,7 @@ import httpx
 from llama_index.core import Document
 from llama_index.core.node_parser import MarkdownNodeParser
 from qdrant_client import AsyncQdrantClient
-from qdrant_client.models import Distance, PointStruct, VectorParams
+from qdrant_client.models import Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams
 
 # ── Config (all from env, sensible defaults) ────────────────
 
@@ -64,11 +65,44 @@ async def _ensure_collection(client: AsyncQdrantClient) -> None:
     logger.info("created collection '%s'", QDRANT_COLLECTION_NAME)
 
 
-async def _clear_collection(client: AsyncQdrantClient) -> None:
-    """Drop and recreate the collection."""
-    await client.delete_collection(QDRANT_COLLECTION_NAME)
-    await _ensure_collection(client)
-    logger.info("cleared & recreated collection '%s'", QDRANT_COLLECTION_NAME)
+async def _list_indexed_sources(client: AsyncQdrantClient) -> set[str]:
+    """Return all known ``source`` payload values in the collection."""
+    sources: set[str] = set()
+    offset = None
+
+    while True:
+        records, offset = await client.scroll(
+            collection_name=QDRANT_COLLECTION_NAME,
+            with_payload=True,
+            with_vectors=False,
+            limit=256,
+            offset=offset,
+        )
+        for record in records:
+            payload = record.payload or {}
+            source = payload.get("source")
+            if isinstance(source, str) and source:
+                sources.add(source)
+        if offset is None:
+            break
+
+    return sources
+
+
+async def _delete_source_points(client: AsyncQdrantClient, source: str) -> None:
+    """Delete all points belonging to a single Markdown source file."""
+    await client.delete(
+        collection_name=QDRANT_COLLECTION_NAME,
+        points_selector=Filter(
+            must=[
+                FieldCondition(
+                    key="source",
+                    match=MatchValue(value=source),
+                )
+            ]
+        ),
+    )
+    logger.info("deleted existing points for source '%s'", source)
 
 
 # ── Markdown loading ───────────────────────────────────────
@@ -106,6 +140,12 @@ def _embed(texts: list[str]) -> list[list[float]]:
     return [item["embedding"] for item in items]
 
 
+def _point_id(source: str, text: str) -> int:
+    """Build a stable 64-bit point id from source filename and chunk text."""
+    digest = hashlib.sha256(f"{source}\0{text}".encode("utf-8")).hexdigest()
+    return int(digest[:16], 16)
+
+
 # ── Main entry point ───────────────────────────────────────
 
 
@@ -118,8 +158,8 @@ async def index_all() -> int:
     client = AsyncQdrantClient(url=QDRANT_URL)
 
     try:
-        # 1. Wipe and recreate collection
-        await _clear_collection(client)
+        # 1. Ensure the collection exists, but keep existing data intact.
+        await _ensure_collection(client)
 
         # 2. Load markdown files
         documents = _load_markdown_files()
@@ -148,13 +188,21 @@ async def index_all() -> int:
             max(sizes) if sizes else 0,
         )
 
-        # 5. Embed
+        # 5. Remove existing points for managed sources, including deleted files.
+        current_sources = {doc.metadata.get("source", "?") for doc in documents}
+        existing_sources = await _list_indexed_sources(client)
+        stale_sources = existing_sources - current_sources
+        sources_to_delete = sorted(current_sources | stale_sources)
+        for source in sources_to_delete:
+            await _delete_source_points(client, source)
+
+        # 6. Embed
         vectors = _embed(texts)
 
-        # 6. Upsert
+        # 7. Upsert with stable ids so the collection remains persistent.
         points = [
             PointStruct(
-                id=i,
+                id=_point_id(nodes[i].metadata.get("source", "?"), nodes[i].get_content()),
                 vector=vec.tolist() if hasattr(vec, "tolist") else vec,
                 payload={
                     "source": nodes[i].metadata.get("source", "?"),

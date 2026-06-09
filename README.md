@@ -223,7 +223,7 @@ StartEvent → [retrieve] → RetrievedEvent → [synthesize] → StopEvent
 
 The **core identity** from ``data/identity.json`` (name, role, company, location) is loaded by ``app/core/identity.py`` and injected into the system prompt on every request — the model always knows who it represents and never fabricates personal details. In Docker, the file is mounted from the [data repo](https://github.com/myleshk/interview-me-data); for local dev, set ``DATA_DIR`` to point at your data repo clone.
 
-The **rich knowledge base** lives in ``data/knowledge/*.md`` files (in the [interview-me-data](https://github.com/myleshk/interview-me-data) repo). The top-level ``indexer/`` component in this repo clears and reloads Qdrant from those files on every deploy — the workflow then retrieves relevant chunks at query time for skills, projects, experience, and bio.
+The **rich knowledge base** lives in ``data/knowledge/*.md`` files (in the [interview-me-data](https://github.com/myleshk/interview-me-data) repo). The top-level ``indexer/`` component in this repo refreshes Qdrant from those files on every deploy without dropping the whole collection first — the workflow then retrieves relevant chunks at query time for skills, projects, experience, and bio.
 
 ## Configuration
 
