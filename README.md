@@ -202,11 +202,7 @@ curl -X POST http://localhost:8000/v1/debug/retrieve \
 
 ### `GET /v1/cv/download`
 
-Download the owner's CV as a PDF file. Place your PDF at `data/static/cv.pdf` (mounted from the [interview-me-data](https://github.com/myleshk/interview-me-data) repo).
-
-```bash
-curl -O http://localhost:8000/v1/cv/download
-```
+CV download is deferred to the frontend — route removed.
 
 ## How It Works
 
@@ -221,7 +217,7 @@ StartEvent → [retrieve] → RetrievedEvent → [synthesize] → StopEvent
 | **retrieve** | Embeds the query via the embedding service, searches Qdrant via hybrid search, returns relevant context chunks | Live |
 | **synthesize** | Calls DeepSeek with identity-grounded system prompt + context, streams tokens | Live |
 
-The **core identity** from ``data/identity.json`` (name, role, company, location) is loaded by ``app/core/identity.py`` and injected into the system prompt on every request — the model always knows who it represents and never fabricates personal details. In Docker, the file is mounted from the [data repo](https://github.com/myleshk/interview-me-data); for local dev, set ``DATA_DIR`` to point at your data repo clone.
+The **core identity** from ``data/identity.json`` (name, role, company, location) is loaded by ``app/core/identity.py`` and injected into the system prompt on every request — the model always knows who it represents and never fabricates personal details. In production, identity is mounted from a ConfigMap; for local dev, set ``DATA_DIR`` to point at your data repo clone.
 
 The **rich knowledge base** lives in ``data/knowledge/*.md`` files (in the [interview-me-data](https://github.com/myleshk/interview-me-data) repo). The top-level ``indexer/`` component in this repo refreshes Qdrant from those files on every deploy without dropping the whole collection first — the workflow then retrieves relevant chunks at query time for skills, projects, experience, and bio.
 
@@ -245,6 +241,35 @@ All settings live in `api/app/core/config.py` and can be overridden via `.env` o
 | `RATE_LIMIT_REQUESTS` | `30` | Max requests per window |
 | `RATE_LIMIT_WINDOW_SECONDS` | `60` | Rate limit window in seconds |
 | `DEBUG` | `false` | Enable debug logging (shows chunk content + full system prompt) |
+| `ROOT_PATH` | `""` | Path prefix when behind reverse proxy (e.g. `"/api"`) |
+
+## Deployment & GitOps
+
+Production runs on a single-node k0s cluster (ARM64 VPS, 4 cores / 24 GiB). Deployments are fully automated via ArgoCD with a dedicated [config repo](https://github.com/myleshk/k0s-config) at `jp-3/interview-me`.
+
+| Component | Kind | Notes |
+|-----------|------|-------|
+| `api` | Deployment | Public endpoint via Cloudflare Tunnel |
+| `embedding` | Deployment | PVC-backed model cache |
+| `qdrant` | StatefulSet | `ReadWriteOncePod`, persistent collection |
+| `indexer` | Job | Versioned (data-commit + indexer-tag), TTL 10 min |
+
+**GitOps contract** — the config repo stores 4 deployment inputs:
+
+- `api` image tag (short git commit hash)
+- `embedding` image tag
+- `indexer` image tag
+- `data` repo commit hash (deployed knowledge version)
+
+**CI/CD** (`.github/workflows/deploy.yml`):
+
+- Path-conditional builds — only changed services get rebuilt.
+- `workflow_dispatch` builds everything.
+- Images push to `ghcr.io/myleshk/interview-me-<service>:<sha>`.
+- Actions update image refs in the config repo; ArgoCD syncs the cluster.
+- Data changes (`interview-me-data`) trigger reindex via a separate workflow.
+
+See `docs/deployment-contract.md` for the full manifest and migration details.
 
 ## Development Notes
 
@@ -267,8 +292,8 @@ def _get_llm_client(self) -> AsyncOpenAI: ...
 - [x] Move identity to `data/identity.json` (core facts only)
 - [x] Keep personal data in separate [interview-me-data](https://github.com/myleshk/interview-me-data) repo
 - [x] Move indexing logic into top-level `indexer/`
-- [ ] Add dense + sparse vector indexing via embedding service
+- [x] Kubernetes manifests & ArgoCD GitOps pipeline
+- [x] GitHub Actions CI/CD pipeline
 - [ ] Conversation memory (session history)
 - [ ] Frontend (Next.js / React / Vue)
-- [ ] Kubernetes manifests for production deployment
-- [ ] GitHub Actions CI/CD pipeline
+- [ ] Add dense + sparse vector indexing via embedding service

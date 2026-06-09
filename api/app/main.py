@@ -20,7 +20,6 @@ from app.ai.workflows import AvatarWorkflow
 from app.ai.qdrant import ensure_collection
 from app.api.routes_admin import router as admin_router
 from app.api.routes_ai import router as ai_router
-from app.api.routes_cv import router as cv_router
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -87,4 +86,3 @@ async def count_requests(request: Request, call_next):
 
 app.include_router(ai_router)
 app.include_router(admin_router)
-app.include_router(cv_router)
