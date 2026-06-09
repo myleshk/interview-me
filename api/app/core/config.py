@@ -32,6 +32,7 @@ class Settings(BaseSettings):
 
     # ── API ────────────────────────────────────────────────
     debug: bool = False
+    root_path: str = ""  # e.g. "/api" when behind reverse proxy with path prefix
 
     # ── Security ───────────────────────────────────────────
     api_key: str | None = None  # Optional bearer-token gate

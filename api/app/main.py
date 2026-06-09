@@ -57,6 +57,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 app = FastAPI(
     title="interview-me API",
     version="0.2.0",
+    root_path=settings.root_path,
     lifespan=lifespan,
 )
 
