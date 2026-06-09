@@ -183,6 +183,7 @@ jobs:
             git add ${{ env.CONFIG_APP_PATH }}/indexer.yaml
           fi
           git diff --cached --quiet || (
-            git commit -m "chore: bump interview-me images to ${{ github.sha }}" &&
+            SHORT_SHA=${GITHUB_SHA:0:7}
+            git commit -m "chore: bump interview-me images to ${SHORT_SHA}" &&
             git push
           )
