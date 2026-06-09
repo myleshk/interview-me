@@ -100,6 +100,25 @@ jobs:
           embedding_image = f"{registry}/{repo}-embedding:{sha_short}"
           indexer_image = f"{registry}/{repo}-indexer:{sha_short}"
 
+          def upsert_configmap_value(text: str, key: str, value: str) -> str:
+              pattern = rf'(^\s*{re.escape(key)}:\s*")[^"]+(")'
+              updated, count = re.subn(
+                  pattern,
+                  rf'\g<1>{value}\g<2>',
+                  text,
+                  count=1,
+                  flags=re.MULTILINE,
+              )
+              if count == 1:
+                  return updated
+
+              data_match = re.search(r'^data:\s*$', text, flags=re.MULTILINE)
+              if not data_match:
+                  raise SystemExit("Could not find ConfigMap data: section in configmap.yaml")
+
+              insert_at = data_match.end()
+              return text[:insert_at] + f'\n  {key}: "{value}"' + text[insert_at:]
+
           def replace_named_container_image(text: str, container_name: str, image: str) -> str:
               pattern = rf"(- name: {re.escape(container_name)}\n\s+image: )[^\n]+"
               updated, count = re.subn(pattern, rf"\1{image}", text, count=1)
@@ -109,9 +128,9 @@ jobs:
 
           configmap_path = config_dir / "configmap.yaml"
           configmap_text = configmap_path.read_text(encoding="utf-8")
+          configmap_text = upsert_configmap_value(configmap_text, "DATA_REPO_COMMIT", "unknown")
+          configmap_path.write_text(configmap_text, encoding="utf-8")
           match = re.search(r'^\s*DATA_REPO_COMMIT:\s*"([^"]+)"', configmap_text, re.MULTILINE)
-          if not match:
-              raise SystemExit("DATA_REPO_COMMIT not found in configmap.yaml")
           data_commit = match.group(1)
 
           api_path = config_dir / "api.yaml"
