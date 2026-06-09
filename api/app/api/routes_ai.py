@@ -25,6 +25,26 @@ from app.core.security import verify_api_key
 
 router = APIRouter(prefix="/v1", tags=["AI"])
 
+# ── GET /v1/models ──────────────────────────────────────────
+
+
+@router.get("/models", summary="List available models (OpenAI-compatible)")
+async def list_models() -> dict[str, Any]:
+    """Return a minimal model list so OpenAI-compatible frontends
+    can discover interview-me as a valid provider."""
+    return {
+        "object": "list",
+        "data": [
+            {
+                "id": "interview-me",
+                "object": "model",
+                "created": 0,
+                "owned_by": "interview-me",
+            }
+        ],
+    }
+
+
 # ── OpenAI-compatible schemas ──────────────────────────────
 
 
