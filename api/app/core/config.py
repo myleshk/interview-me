@@ -31,8 +31,6 @@ class Settings(BaseSettings):
     embedding_dim: int = 384
 
     # ── API ────────────────────────────────────────────────
-    api_host: str = "0.0.0.0"
-    api_port: int = 8000
     debug: bool = False
 
     # ── Security ───────────────────────────────────────────
