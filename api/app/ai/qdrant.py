@@ -4,8 +4,9 @@ Provides a singleton client and high-level functions for:
 - Creating / ensuring collections exist
 - Querying with hybrid search
 
-Note: indexing (upsert) lives in the separate ``interview-me-data`` repo.
-The API is a read-only Qdrant consumer.
+Note: indexing (upsert) lives in the top-level ``indexer/`` component in this
+repo and reads curated content from the separate data repo. The API is a
+read-only Qdrant consumer.
 
 Requires Qdrant to be running (see ``docker-compose.yml``).
 """

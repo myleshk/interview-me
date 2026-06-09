@@ -34,21 +34,12 @@ interview-me/
 │   │   │   ├── qdrant.py         # Vector DB connection & queries (read-only)
 │   │   │   └── prompts.py        # System prompt templates
 │   │   └── main.py               # Wires the routers together
-│   ├── data/
-│   │   ├── identity.json          # Core facts (name, role, company, location)
-│   │   ├── static/               # Served to users (e.g. cv.pdf)
-│   │   └── knowledge/            # AI knowledge base (→ Qdrant)
-│   │       └── *.md              # Detailed profile (skills, projects, bio, etc.)
 │   ├── Dockerfile                # Builds ONLY the Python backend
 │   └── requirements.txt
+├── indexer/                      # Standalone knowledge indexer → Qdrant
 ├── web/                          # Frontend (Next.js/React/Vue)
 │   └── src/
 ├── embedding/                    # Embedding microservice (FastEmbed + FastAPI)
-├── k8s/                          # Kubernetes Manifests
-│   ├── api-deployment.yaml
-│   ├── web-deployment.yaml
-│   ├── qdrant-statefulset.yaml
-│   └── ingress.yaml
 ├── docker-compose.yml            # Local dev stack (API, embedding, Qdrant)
 └── README.md
 ```
@@ -104,7 +95,24 @@ The server starts at `http://localhost:8000`.
 docker compose up -d
 ```
 
-This starts both Qdrant and the API backend.
+This starts Qdrant, the embedding service, and the API backend.
+
+### 5. Index your knowledge data
+
+The indexer now lives in the top-level `indexer/` directory of this repo and
+reads curated Markdown files from your separate data repo clone.
+
+```bash
+# From the project root
+cd indexer
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+DATA_DIR=../../data/knowledge python main.py
+```
+
+If your data repo is cloned somewhere else, point `DATA_DIR` at that
+`knowledge/` directory instead.
 
 ## API Endpoints
 
@@ -215,7 +223,7 @@ StartEvent → [retrieve] → RetrievedEvent → [synthesize] → StopEvent
 
 The **core identity** from ``data/identity.json`` (name, role, company, location) is loaded by ``app/core/identity.py`` and injected into the system prompt on every request — the model always knows who it represents and never fabricates personal details. In Docker, the file is mounted from the [data repo](https://github.com/myleshk/interview-me-data); for local dev, set ``DATA_DIR`` to point at your data repo clone.
 
-The **rich knowledge base** lives in ``data/knowledge/*.md`` files (in the [interview-me-data](https://github.com/myleshk/interview-me-data) repo). The standalone indexer in that repo clears and reloads Qdrant from these files on every deploy — the workflow then retrieves relevant chunks at query time for skills, projects, experience, and bio.
+The **rich knowledge base** lives in ``data/knowledge/*.md`` files (in the [interview-me-data](https://github.com/myleshk/interview-me-data) repo). The top-level ``indexer/`` component in this repo clears and reloads Qdrant from those files on every deploy — the workflow then retrieves relevant chunks at query time for skills, projects, experience, and bio.
 
 ## Configuration
 
@@ -257,7 +265,8 @@ def _get_llm_client(self) -> AsyncOpenAI: ...
 
 - [x] Wire Qdrant hybrid search into the `retrieve` step
 - [x] Move identity to `data/identity.json` (core facts only)
-- [x] Move indexer to separate [interview-me-data](https://github.com/myleshk/interview-me-data) repo
+- [x] Keep personal data in separate [interview-me-data](https://github.com/myleshk/interview-me-data) repo
+- [x] Move indexing logic into top-level `indexer/`
 - [ ] Add dense + sparse vector indexing via embedding service
 - [ ] Conversation memory (session history)
 - [ ] Frontend (Next.js / React / Vue)
