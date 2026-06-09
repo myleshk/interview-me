@@ -128,10 +128,8 @@ jobs:
 
           configmap_path = config_dir / "configmap.yaml"
           configmap_text = configmap_path.read_text(encoding="utf-8")
-          configmap_text = upsert_configmap_value(configmap_text, "DATA_REPO_COMMIT", "unknown")
-          configmap_path.write_text(configmap_text, encoding="utf-8")
           match = re.search(r'^\s*DATA_REPO_COMMIT:\s*"([^"]+)"', configmap_text, re.MULTILINE)
-          data_commit = match.group(1)
+          data_commit = match.group(1) if match else "unknown"
 
           api_path = config_dir / "api.yaml"
           api_text = api_path.read_text(encoding="utf-8")
