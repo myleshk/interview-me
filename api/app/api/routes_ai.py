@@ -137,7 +137,7 @@ async def chat_completions(
     token_stream = await workflow.run(query=query)
 
     if body.stream:
-        return _streaming_response(token_stream, model=body.model)
+        return await _streaming_response(token_stream, model=body.model)
     else:
         return await _non_streaming_response(token_stream, model=body.model)
 
