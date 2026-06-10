@@ -126,33 +126,19 @@ Notes:
 
 ## Recommended Config Repo Shape
 
-The current config path is already a flat manifest directory at
-`jp-3/interview-me`. Keeping that shape is completely reasonable for now.
+The current config path is a flat manifest directory at
+`jp-3/interview-me`. The key deployment inputs are in these files:
 
-The important point is not adding Helm or Kustomize immediately. The important
-point is that this directory has one obvious place where these four deployment
-inputs live:
+- `api.yaml` — API image tag (git hash)
+- `embedding.yaml` — Embedding service image tag
+- `indexer.yaml` — Indexer Job image tag + data commit in job name
+- `configmap.yaml` — `DATA_REPO_COMMIT` and other runtime config
 
-- `api` tag
-- `embedding` tag
-- `indexer` tag
-- `data` commit
-
-That can be implemented in either of these ways:
-
-- keep the current flat manifests and edit image tags / Job naming directly
-- add one small release-values file in the same directory and template from it later
-
-For the next pass, the simplest path is probably:
-
-- keep `jp-3/interview-me` as the deployment directory
-- update `api.yaml` and `embedding.yaml` to stop using `:latest`
-- add a new `indexer.yaml` Job manifest
-- stop cloning the data repo inside the API pod once the indexer Job owns that responsibility
+No Helm or Kustomize is needed at this scale.
 
 ## Manifest Set
 
-The initial production manifest set should include:
+Current production manifests:
 
 - `api` Deployment + Service
 - `embedding` Deployment + Service
@@ -245,12 +231,11 @@ This fits your stated preference: stale data is acceptable, downtime is not.
 
 Migration complete:
 
-1. ~~Replace `:latest` image usage with git-hash tags for `api` and `embedding`.~~
-2. ~~Add a dedicated `indexer` Job manifest in the same directory.~~
-3. ~~Move private data repo cloning from `api` init container into the `indexer` Job init container.~~
-4. ~~Remove the `/app/data` repo clone mount from the API Deployment.~~ → Identity delivered via ConfigMap.
-5. ~~Keep `qdrant` persistent.~~ → Converted to StatefulSet + `ReadWriteOncePod`.
-6. Later, decide whether the API should still receive selected static data separately from the indexer flow.
+- Git-hash image tags for `api`, `embedding`, and `indexer`. ✅
+- Dedicated `indexer` Job with deterministic naming (`data-commit` + `indexer-tag`). ✅
+- Private data repo cloning moved from `api` init container into `indexer` Job. ✅
+- Identity delivered via ConfigMap mount (no data repo clone in API pod). ✅
+- Qdrant on StatefulSet + `ReadWriteOncePod` with persistent storage. ✅
 
 ## Important Risk
 
@@ -310,9 +295,11 @@ interviewMe:
 
 ## Near-Term Execution Order
 
-1. Lock the config repo schema for the four deployment inputs.
-2. Decide the private repo auth method for the init container.
-3. Draft the `indexer` Job manifest around deterministic naming.
-4. Draft runtime manifests for `api`, `embedding`, `qdrant`, and ingress.
-5. Revisit the destructive collection rebuild before production rollout.
-6. Update CI later so image tags and `data` commit automatically flow into the config repo.
+All items below are now completed:
+
+1. ✅ Config repo schema locked for four deployment inputs.
+2. ✅ Private repo auth via deploy key in init container.
+3. ✅ `indexer` Job manifest with deterministic naming.
+4. ✅ Runtime manifests for `api`, `embedding`, `qdrant`, and ingress.
+5. ✅ Non-destructive collection rebuild (upsert, not drop-and-recreate).
+6. ✅ CI auto-updates config repo with image tags and data commit.

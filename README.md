@@ -17,13 +17,12 @@ An open-source AI interview portfolio. A FastAPI + LlamaIndex Workflows backend 
 
 ```
 interview-me/
-├── .github/workflows/            # CI/CD pipelines (optional later)
+├── .github/workflows/            # CI/CD pipelines (path-conditional builds + GitOps)
 ├── api/                          # The FastAPI "Modulith" Backend
 │   ├── app/
 │   │   ├── api/
 │   │   │   ├── routes_ai.py      # /v1/chat/completions (OpenAI-compatible)
-│   │   │   ├── routes_admin.py   # /v1/health, /v1/metrics
-│   │   │   └── routes_cv.py      # /v1/cv/download (static PDF)
+│   │   │   └── routes_admin.py   # /v1/health, /v1/metrics, /v1/debug/retrieve
 │   │   ├── core/
 │   │   │   ├── config.py         # Environment variables & Pydantic settings
 │   │   │   ├── identity.py       # Loads core profile from data/identity.json
@@ -116,6 +115,23 @@ If your data repo is cloned somewhere else, point `DATA_DIR` at that
 
 ## API Endpoints
 
+### `GET /v1/models`
+
+OpenAI-compatible model list — required by LobeChat, ChatGPT-Next-Web, and any OpenAI SDK client to discover interview-me as a provider.
+
+```bash
+curl http://localhost:8000/v1/models
+```
+
+```json
+{
+  "object": "list",
+  "data": [
+    {"id": "interview-me", "object": "model", "created": 0, "owned_by": "interview-me"}
+  ]
+}
+```
+
 ### `POST /v1/chat/completions`
 
 **OpenAI-compatible** — works with LobeChat, ChatGPT-Next-Web, and any OpenAI SDK client.
@@ -200,10 +216,6 @@ curl -X POST http://localhost:8000/v1/debug/retrieve \
 }
 ```
 
-### `GET /v1/cv/download`
-
-CV download is deferred to the frontend — route removed.
-
 ## How It Works
 
 The RAG pipeline is an async LlamaIndex Workflow with two steps:
@@ -235,7 +247,7 @@ All settings live in `api/app/core/config.py` and can be overridden via `.env` o
 | `QDRANT_API_KEY` | *(none)* | Qdrant API key (if auth is enabled) |
 | `EMBEDDING_SERVICE_URL` | `http://embedding:8080` | Embedding service URL |
 | `EMBEDDING_DIM` | `384` | Embedding dimension |
-| `DATA_DIR` | *(auto)* | Path to data repo (identity.json + static/) |
+| `DATA_DIR` | *(auto)* | Path to data repo (identity.json + static/). Read by `identity.py` from env |
 | `API_KEY` | *(none)* | Optional bearer-token gate (leave empty to disable) |
 | `ALLOWED_ORIGINS` | `["*"]` | CORS allowed origins |
 | `RATE_LIMIT_REQUESTS` | `30` | Max requests per window |
