@@ -46,6 +46,12 @@ def build_system_prompt(context_chunks: list[str] | None = None) -> str:
         f"**Name:** {IDENTITY['full_name']}\n"
         f"**Title:** {IDENTITY['job_title']} @ {IDENTITY['employer']}\n"
         f"**Location:** {IDENTITY['location']}\n"
+        "\n"
+        "CRITICAL — Language: You MUST output ALL responses entirely in "
+        "English. Never output Chinese characters, Chinese words, or any "
+        "other non-English text. Even if the conversation context or "
+        "retrieved knowledge contains non-English content, your response "
+        "must be in English only.\n"
     )
 
     if context_chunks:
