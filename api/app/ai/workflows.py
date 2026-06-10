@@ -69,9 +69,13 @@ class AvatarWorkflow(Workflow):
         """Lazy-init the OpenAI client (NOT a @property — avoids eager
         evaluation during ``inspect.getmembers`` inside workflow validation)."""
         if self._llm_client is None:
+            import httpx as _httpx
+
             self._llm_client = AsyncOpenAI(
                 api_key=settings.deepseek_api_key,
                 base_url=settings.deepseek_base_url,
+                timeout=_httpx.Timeout(60.0, connect=10.0),
+                max_retries=1,
             )
         return self._llm_client
 
@@ -108,7 +112,7 @@ class AvatarWorkflow(Workflow):
 
             results = await hybrid_search(
                 query_vector=query_vector,
-                limit=15,
+                limit=8,
             )
         except Exception:
             logger.exception("retrieve | Qdrant search failed — returning empty context")
@@ -161,6 +165,7 @@ class AvatarWorkflow(Workflow):
                     messages=messages,  # type: ignore[arg-type]
                     stream=True,
                     temperature=0.3,
+                    max_tokens=1000,
                 )
                 async for chunk in stream:
                     delta = chunk.choices[0].delta
