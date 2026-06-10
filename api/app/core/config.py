@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     # ── Security ───────────────────────────────────────────
     api_key: str | None = None  # Optional bearer-token gate
     allowed_origins: list[str] = ["*"]
+    cors_allow_localhost: bool = True  # Match http(s)://localhost:* via regex
 
     # ── Rate Limiting ──────────────────────────────────────
     rate_limit_requests: int = 30       # max requests per window
