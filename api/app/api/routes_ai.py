@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Generator
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -137,34 +137,73 @@ async def chat_completions(
     token_stream = await workflow.run(query=query)
 
     if body.stream:
-        return await _streaming_response(token_stream, model=body.model)
+        return _streaming_response(token_stream, model=body.model)
     else:
         return await _non_streaming_response(token_stream, model=body.model)
 
 
-async def _streaming_response(
+def _streaming_response(
     token_stream: AsyncGenerator[str, None],
     *,
     model: str,
 ) -> StreamingResponse:
-    """Yield OpenAI-format SSE chunks."""
+    """Yield OpenAI-format SSE chunks via a sync generator bridge.
+
+    Async-generator content is not reliably supported by StreamingResponse
+    across all Starlette / Python versions.  We drain the async stream on
+    a background thread and feed bytes into a thread-safe queue.
+    """
+    import queue
+    import threading
+    import asyncio
+
     chunk_id = f"chatcmpl-{id(token_stream):x}"
     created = int(time.time())
-    first = True
 
-    async def _sse() -> AsyncGenerator[str, None]:
-        nonlocal first
-        async for token in token_stream:
-            if first:
-                yield _make_sse_chunk(chunk_id, model, created, token, role="assistant")
+    q: queue.Queue[bytes] = queue.Queue()
+    done = threading.Event()
+
+    async def _producer() -> None:
+        first = True
+        try:
+            async for token in token_stream:
+                chunk = _make_sse_chunk(
+                    chunk_id,
+                    model,
+                    created,
+                    token,
+                    role="assistant" if first else None,
+                )
                 first = False
-            else:
-                yield _make_sse_chunk(chunk_id, model, created, token)
-        yield _make_sse_chunk(chunk_id, model, created, None, finish_reason="stop")
-        yield "data: [DONE]\n\n"
+                q.put(chunk.encode())
+        finally:
+            q.put(
+                _make_sse_chunk(
+                    chunk_id, model, created, None, finish_reason="stop"
+                ).encode()
+            )
+            q.put(b"data: [DONE]\n\n")
+            done.set()
+
+    def _runner() -> None:
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(_producer())
+        loop.close()
+
+    threading.Thread(target=_runner, daemon=True).start()
+
+    def _sync() -> Generator[bytes, None, None]:
+        while not done.is_set() or not q.empty():
+            try:
+                yield q.get(timeout=0.1)
+                q.task_done()
+            except queue.Empty:
+                if done.is_set():
+                    break
+                continue
 
     return StreamingResponse(
-        _sse(),
+        _sync(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
