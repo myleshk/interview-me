@@ -14,7 +14,8 @@ venv/
 env/
 
 # Environment variables
-.env
+.env*
+!.env.example
 .local.api-keys.txt
 
 # IDE

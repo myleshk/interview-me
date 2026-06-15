@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     """Centralised, typed configuration for the interview-me API."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", ".env.local"),   # .env.local takes precedence
         env_file_encoding="utf-8",
         extra="ignore",
     )
