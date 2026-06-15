@@ -261,18 +261,9 @@ files = [
 huggingface-hub = ">=0.20,<2.0"
 loguru = ">=0.7.2,<0.8.0"
 mmh3 = ">=4.1.0,<6.0.0"
-numpy = [
-    {version = ">=2.1.0", markers = "python_version == \"3.13\""},
-    {version = ">=2.3.0", markers = "python_version >= \"3.14\""},
-]
-onnxruntime = [
-    {version = ">1.21.0,<1.24.0 || >1.24.0,<1.24.1 || >1.24.1", markers = "python_version == \"3.13\""},
-    {version = ">=1.24.2", markers = "python_version >= \"3.14\""},
-]
-pillow = [
-    {version = ">=11.0.0,<13.0", markers = "python_version == \"3.13\""},
-    {version = ">=12.0.0,<13.0", markers = "python_version >= \"3.14\""},
-]
+numpy = {version = ">=2.3.0", markers = "python_version >= \"3.14\""}
+onnxruntime = {version = ">=1.24.2", markers = "python_version >= \"3.14\""}
+pillow = {version = ">=12.0.0,<13.0", markers = "python_version >= \"3.14\""}
 py-rust-stemmers = ">=0.1.0,<0.2.0"
 requests = ">=2.31,<3.0"
 tokenizers = ">=0.15,<1.0"
@@ -1879,5 +1870,5 @@ test = ["httpx", "pytest"]
 
 [metadata]
 lock-version = "2.1"
-python-versions = ">=3.13,<4.0"
-content-hash = "1b27082767682aea3696b6c8b52ec98a3947bc36e5179a16ef1fba0d93e4364a"
+python-versions = ">=3.14,<4.0"
+content-hash = "67f2bef47353a8cc591c8e9bfe925fc31888b5ade6f72c21b9da1a51e5ae44a9"

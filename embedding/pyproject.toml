@@ -2,7 +2,7 @@
 name = "interview-me-embedding"
 version = "0.1.0"
 description = "Text embedding microservice for interview-me"
-requires-python = ">=3.13,<4.0"
+requires-python = ">=3.14,<4.0"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",

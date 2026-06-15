@@ -2,7 +2,7 @@
 name = "interview-me-indexer"
 version = "0.1.0"
 description = "Knowledge base indexer for interview-me"
-requires-python = ">=3.13,<4.0"
+requires-python = ">=3.14,<4.0"
 dependencies = [
     "llama-index-core>=0.12.0",
     "qdrant-client>=1.12.0",
