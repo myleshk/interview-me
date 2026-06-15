@@ -23,13 +23,15 @@ jobs:
         run: |
           cd api
           pip install poetry
-          poetry install --with test --no-root
+          poetry install --no-root
+          poetry run pip install pytest
           poetry run pytest tests/ -v
       - name: Run embedding tests
         run: |
           cd embedding
           pip install poetry
-          poetry install --with test --no-root
+          poetry install --no-root
+          poetry run pip install pytest
           poetry run pytest tests/ -v
 
   # ── Detect changed source directories ───────────────────────
