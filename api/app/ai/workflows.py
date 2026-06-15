@@ -120,7 +120,7 @@ class AvatarWorkflow(Workflow):
 
         context_chunks = [r.get("text", "") for r in results if r.get("text")]
 
-        logger.info(
+        logger.debug(
             "retrieve | query=%s  results=%d  chunks=%d",
             query,
             len(results),
@@ -175,7 +175,7 @@ class AvatarWorkflow(Workflow):
                 logger.exception("synthesize | streaming error")
                 yield "[Error: failed to generate response]"
 
-        logger.info(
+        logger.debug(
             "synthesize | query=%s  context_chunks=%d",
             ev.query,
             len(ev.context_chunks),
