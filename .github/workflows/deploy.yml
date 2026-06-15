@@ -28,13 +28,20 @@ jobs:
           cd api
           pip install poetry
           poetry install --extras test --no-root
-          poetry run pytest tests/ -v
+          poetry run pytest tests/ -v --cov=app --cov-report=html --cov-report=term
       - name: Run embedding tests
         run: |
           cd embedding
           pip install poetry
           poetry install --extras test --no-root
-          poetry run pytest tests/ -v
+          poetry run pytest tests/ -v --cov=main --cov-report=html --cov-report=term
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-python
+          path: |
+            api/htmlcov/
+            embedding/htmlcov/
 
   # ── Detect changed source directories ───────────────────────
 

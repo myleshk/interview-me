@@ -1,5 +1,7 @@
 # interview-me
 
+[![CI](https://github.com/myleshk/interview-me/actions/workflows/deploy.yml/badge.svg)](https://github.com/myleshk/interview-me/actions/workflows/deploy.yml)
+
 An open-source AI interview portfolio. A FastAPI + LlamaIndex Workflows backend powers an identity-grounded, RAG-augmented interview avatar with streaming responses. Qdrant for hybrid vector search, DeepSeek for generation, and a dedicated embedding microservice for vector generation. Personal data lives in a separate [interview-me-data](https://github.com/myleshk/interview-me-data) repo.
 
 ## Tech Stack
