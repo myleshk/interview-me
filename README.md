@@ -11,7 +11,7 @@ An open-source AI interview portfolio. A FastAPI + LlamaIndex Workflows backend 
 | Vector Store | Qdrant (hybrid search) |
 | LLM | DeepSeek (via OpenAI SDK, `https://api.deepseek.com/v1`) |
 | Embeddings | Embedding microservice — `BAAI/bge-small-en-v1.5` (384-dim) |
-| Frontend | *(coming soon)* Next.js / React / Vue |
+| Frontend | Next.js 16 + Vercel AI SDK v6 + Tailwind CSS |
 
 ## Project Structure
 
@@ -33,11 +33,11 @@ interview-me/
 │   │   │   ├── qdrant.py         # Vector DB connection & queries (read-only)
 │   │   │   └── prompts.py        # System prompt templates
 │   │   └── main.py               # Wires the routers together
-│   ├── Dockerfile                # Builds ONLY the Python backend
-│   └── requirements.txt
+│   ├── Dockerfile                # Builds the API image
+│   ├── pyproject.toml             # Poetry dependency spec
+│   └── poetry.lock                # Pinned transitive dependencies
 ├── indexer/                      # Standalone knowledge indexer → Qdrant
-├── web/                          # Frontend (Next.js/React/Vue)
-│   └── src/
+├── web/                          # Next.js frontend (separate repo)
 ├── embedding/                    # Embedding microservice (FastEmbed + FastAPI)
 ├── docker-compose.yml            # Local dev stack (API, embedding, Qdrant)
 └── README.md
@@ -45,21 +45,20 @@ interview-me/
 
 ## Quick Start
 
-### 1. Create a virtual environment & install deps
+### 1. Install dependencies (Poetry)
 
 ```bash
 cd api/
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+pip install poetry
+poetry install
 ```
 
 ### 2. Configure environment variables
 
-Create a `.env` file inside the `api/` directory from the template:
+Create a `.env.local` file inside the `api/` directory from the template:
 
 ```bash
-cp api/.env.example api/.env
+cp api/.env.example api/.env.local
 ```
 
 Edit the file — the only **required** value is your DeepSeek API key:
@@ -104,10 +103,9 @@ reads curated Markdown files from your separate data repo clone.
 ```bash
 # From the project root
 cd indexer
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-DATA_DIR=../../data/knowledge python main.py
+pip install poetry
+poetry install
+DATA_DIR=../../data/knowledge poetry run python main.py
 ```
 
 If your data repo is cloned somewhere else, point `DATA_DIR` at that
@@ -235,7 +233,7 @@ The **rich knowledge base** lives in ``data/knowledge/*.md`` files (in the [inte
 
 ## Configuration
 
-All settings live in `api/app/core/config.py` and can be overridden via `.env` or environment variables:
+All settings live in `api/app/core/config.py` and can be overridden via `.env` / `.env.local` or environment variables (`.env.local` takes precedence):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -283,6 +281,18 @@ Production runs on a single-node k0s cluster (ARM64 VPS, 4 cores / 24 GiB). Depl
 
 See `docs/deployment-contract.md` for the full manifest and migration details.
 
+## Testing
+
+```bash
+# API tests
+cd api && poetry install && poetry run pytest tests/ -v
+
+# Embedding service tests
+cd embedding && poetry install && poetry run pytest tests/ -v
+```
+
+Rate limiting is implemented as a per-IP sliding-window limiter in `api/app/core/rate_limit.py`. Configurable via `RATE_LIMIT_REQUESTS` and `RATE_LIMIT_WINDOW_SECONDS` env vars. The web frontend adds a separate in-memory rate limit layer (see web/README.md).
+
 ## Development Notes
 
 ### LlamaIndex Workflows: avoid `@property` on the Workflow class
@@ -307,5 +317,4 @@ def _get_llm_client(self) -> AsyncOpenAI: ...
 - [x] Kubernetes manifests & ArgoCD GitOps pipeline
 - [x] GitHub Actions CI/CD pipeline
 - [ ] Conversation memory (session history)
-- [ ] Frontend (Next.js / React / Vue)
 - [ ] Add dense + sparse vector indexing via embedding service

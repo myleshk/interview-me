@@ -43,7 +43,7 @@ files for the current deployment:
 - `namespace.yaml`
 - `configmap.yaml`
 - `secret.yaml`
-- `git-credentials.yaml`
+- `ssh-deploy-key.yaml`
 - `api.yaml`
 - `embedding.yaml`
 - `qdrant.yaml`
