@@ -11,7 +11,7 @@ RUN poetry install --no-root --only main --no-interaction
 
 COPY main.py .
 
-# Default: knowledge files are mounted at /data/knowledge
+# Default: knowledge files cloned into /tmp/data by the K8s Job command
 ENV DATA_DIR=/data/knowledge
 
 CMD ["poetry", "run", "python", "main.py"]
