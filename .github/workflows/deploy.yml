@@ -11,9 +11,29 @@ env:
   CONFIG_APP_PATH: jp-3/interview-me
 
 jobs:
+  # ── Test ─────────────────────────────────────────────────
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Run API tests
+        run: |
+          cd api
+          pip install -e ".[test]"
+          python -m pytest tests/ -v
+      - name: Run embedding tests
+        run: |
+          cd embedding
+          pip install -e ".[test]"
+          python -m pytest tests/ -v
+
   # ── Detect changed source directories ───────────────────────
 
   changes:
+    needs: test
     runs-on: ubuntu-latest
     outputs:
       api: ${{ steps.filter.outputs.api }}
