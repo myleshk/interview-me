@@ -35,7 +35,7 @@ jobs:
           pip install poetry
           poetry install --extras test --no-root
           poetry run pytest tests/ -v --cov=main --cov-report=html --cov-report=term
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: coverage-python
