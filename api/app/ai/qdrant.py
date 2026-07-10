@@ -14,11 +14,15 @@ Requires Qdrant to be running (see ``docker-compose.yml``).
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import (
     Distance,
+    FieldCondition,
+    Filter,
+    MatchAny,
     SparseVectorParams,
     VectorParams,
 )
@@ -26,6 +30,15 @@ from qdrant_client.models import (
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SearchResponse:
+    """Retrieved payloads plus metadata-filter diagnostics."""
+
+    payloads: list[dict[str, Any]]
+    filtered_domains: tuple[str, ...]
+    filter_fallback: bool
 
 # ── Singleton client ───────────────────────────────────────
 
@@ -93,7 +106,8 @@ async def hybrid_search(
     query_vector: list[float],
     sparse_vector: dict[int, float] | None = None,
     limit: int = 5,
-) -> list[dict[str, Any]]:
+    domains: list[str] | None = None,
+) -> SearchResponse:
     """Perform a hybrid (dense + sparse) search.
 
     Args:
@@ -102,7 +116,7 @@ async def hybrid_search(
         limit: Max number of results.
 
     Returns:
-        List of payload dicts from matching points.
+        Payloads and diagnostics describing metadata filtering.
     """
     client = get_qdrant_client()
 
@@ -113,13 +127,41 @@ async def hybrid_search(
     except Exception:
         logger.debug("hybrid_search | ensure_collection failed (may already exist)")
 
-    # Build the search query — dense only for now; sparse added when indexer is wired.
-    results = await client.query_points(
-        collection_name=settings.qdrant_collection_name,
-        query=query_vector,
-        using="",  # default vector field
-        limit=limit,
-        with_payload=True,
-    )
+    filtered_domains = tuple(dict.fromkeys(domains or []))
+    query_filter = None
+    if filtered_domains:
+        query_filter = Filter(
+            must=[
+                FieldCondition(
+                    key="document_metadata.domains",
+                    match=MatchAny(any=list(filtered_domains)),
+                )
+            ]
+        )
 
-    return [point.payload or {} for point in results.points]
+    async def _query(active_filter: Filter | None):
+        return await client.query_points(
+            collection_name=settings.qdrant_collection_name,
+            query=query_vector,
+            using="",  # default vector field
+            query_filter=active_filter,
+            limit=limit,
+            with_payload=True,
+        )
+
+    # Build the search query — dense only for now; sparse added when indexer is wired.
+    results = await _query(query_filter)
+    filter_fallback = False
+    if query_filter is not None and not results.points:
+        logger.debug(
+            "hybrid_search | metadata filter returned no results; retrying unfiltered domains=%s",
+            filtered_domains,
+        )
+        results = await _query(None)
+        filter_fallback = True
+
+    return SearchResponse(
+        payloads=[point.payload or {} for point in results.points],
+        filtered_domains=filtered_domains,
+        filter_fallback=filter_fallback,
+    )

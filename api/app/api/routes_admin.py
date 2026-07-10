@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from time import monotonic
+from typing import Any
 
 import httpx
 from fastapi import APIRouter, Request
@@ -75,11 +76,21 @@ class RetrieveDebugRequest(BaseModel):
 class RetrieveChunk(BaseModel):
     source: str
     text: str
+    document_metadata: dict[str, Any]
+    section_path: str
+    section_headings: list[str]
+
+
+class RetrievalClassification(BaseModel):
+    domains: list[str]
+    matched_terms: dict[str, list[str]]
+    filter_fallback: bool
 
 
 class RetrieveDebugResponse(BaseModel):
     query: str
     total_results: int
+    classification: RetrievalClassification
     chunks: list[RetrieveChunk]
 
 
@@ -96,6 +107,7 @@ async def debug_retrieve(body: RetrieveDebugRequest) -> RetrieveDebugResponse:
     verifying which chunks surface for a given query.
     """
     from app.ai.qdrant import hybrid_search
+    from app.ai.retrieval import classify_query
 
     # Call the remote embedding service
     resp = httpx.post(
@@ -106,15 +118,21 @@ async def debug_retrieve(body: RetrieveDebugRequest) -> RetrieveDebugResponse:
     resp.raise_for_status()
     query_vector = list(resp.json()["data"][0]["embedding"])
 
-    results = await hybrid_search(
+    classification = classify_query(body.query)
+    search = await hybrid_search(
         query_vector=query_vector,
         limit=body.limit,
+        domains=list(classification.domains),
     )
+    results = search.payloads
 
     chunks = [
         RetrieveChunk(
             source=r.get("source", "?"),
             text=r.get("text", ""),
+            document_metadata=r.get("document_metadata", {}),
+            section_path=r.get("section_path", ""),
+            section_headings=r.get("section_headings", []),
         )
         for r in results
         if r.get("text")
@@ -123,5 +141,13 @@ async def debug_retrieve(body: RetrieveDebugRequest) -> RetrieveDebugResponse:
     return RetrieveDebugResponse(
         query=body.query,
         total_results=len(results),
+        classification=RetrievalClassification(
+            domains=list(classification.domains),
+            matched_terms={
+                domain: list(terms)
+                for domain, terms in classification.matched_terms.items()
+            },
+            filter_fallback=search.filter_fallback,
+        ),
         chunks=chunks,
     )

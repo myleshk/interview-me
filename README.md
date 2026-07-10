@@ -198,6 +198,9 @@ curl http://localhost:8000/v1/metrics
 ### `POST /v1/debug/retrieve`
 
 Run only the RAG retrieve step — see exactly which chunks Qdrant returns for a query, without calling the LLM.
+The endpoint also shows deterministic query classification, the metadata domains
+used to filter Qdrant, whether retrieval fell back to an unfiltered search, and
+the stored document/section metadata for every chunk.
 
 ```bash
 curl -X POST http://localhost:8000/v1/debug/retrieve \
@@ -209,12 +212,31 @@ curl -X POST http://localhost:8000/v1/debug/retrieve \
 {
   "query": "What projects have you worked on?",
   "total_results": 3,
+  "classification": {
+    "domains": ["projects"],
+    "matched_terms": {"projects": ["projects", "worked on"]},
+    "filter_fallback": false
+  },
   "chunks": [
-    {"source": "Professional_Profile.md", "text": "Myles operates on the principle..."},
+    {
+      "source": "2_cv_experience.md",
+      "text": "...",
+      "document_metadata": {
+        "content_type": "career_timeline",
+        "domains": ["experience", "projects", "skills"]
+      },
+      "section_path": "/PROJECTS/Software Engineer (backend)",
+      "section_headings": ["Software Engineer (backend)"]
+    },
     ...
   ]
 }
 ```
+
+Queries without an explicit classification signal remain unfiltered. If a
+classified filter returns no points, retrieval retries once without metadata
+filtering so classification cannot turn a recoverable query into an empty
+answer.
 
 ## How It Works
 
@@ -226,7 +248,7 @@ StartEvent → [retrieve] → RetrievedEvent → [synthesize] → StopEvent
 
 | Step | What it does | Current status |
 |------|-------------|----------------|
-| **retrieve** | Embeds the query via the embedding service, searches Qdrant via hybrid search, returns relevant context chunks | Live |
+| **retrieve** | Classifies explicit query topics, embeds the query, applies a Qdrant metadata-domain filter with unfiltered fallback, and returns relevant context chunks | Live |
 | **synthesize** | Calls DeepSeek with identity-grounded system prompt + context, streams tokens | Live |
 
 The **core identity** from ``data/identity.json`` (name, role, company, location) is loaded by ``app/core/identity.py`` and injected into the system prompt on every request — the model always knows who it represents and never fabricates personal details. In production, identity is mounted from a ConfigMap; for local dev, set ``DATA_DIR`` to point at your data repo clone.

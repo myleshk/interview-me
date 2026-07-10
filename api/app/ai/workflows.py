@@ -25,6 +25,7 @@ from workflows.events import Event, StartEvent, StopEvent
 from app.core.config import settings
 from app.ai.prompts import build_system_prompt
 from app.ai.qdrant import hybrid_search
+from app.ai.retrieval import classify_query
 
 logger = logging.getLogger(__name__)
 
@@ -110,9 +111,17 @@ class AvatarWorkflow(Workflow):
         try:
             query_vector = await self._embed_query(query)
 
-            results = await hybrid_search(
+            classification = classify_query(query)
+            search = await hybrid_search(
                 query_vector=query_vector,
                 limit=8,
+                domains=list(classification.domains),
+            )
+            results = search.payloads
+            logger.debug(
+                "retrieve | metadata_domains=%s filter_fallback=%s",
+                search.filtered_domains,
+                search.filter_fallback,
             )
         except Exception:
             logger.exception("retrieve | Qdrant search failed — returning empty context")
