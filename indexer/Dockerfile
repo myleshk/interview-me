@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir poetry
 COPY pyproject.toml poetry.lock ./
 RUN poetry install --no-root --no-interaction
 
-COPY main.py .
+COPY main.py metadata.py ./
 
 # Default: knowledge files cloned into /tmp/data by the K8s Job command
 ENV DATA_DIR=/data/knowledge

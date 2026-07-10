@@ -291,6 +291,9 @@ cd api && poetry install && poetry run pytest tests/ -v
 
 # Embedding service tests
 cd embedding && poetry install && poetry run pytest tests/ -v
+
+# Indexer metadata tests
+cd indexer && poetry install --extras test && poetry run pytest tests/ -v
 ```
 
 Rate limiting is implemented as a per-IP sliding-window limiter in `api/app/core/rate_limit.py`. Configurable via `RATE_LIMIT_REQUESTS` and `RATE_LIMIT_WINDOW_SECONDS` env vars. The web frontend adds a separate in-memory rate limit layer (see web/README.md).

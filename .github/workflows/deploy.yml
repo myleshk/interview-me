@@ -35,6 +35,12 @@ jobs:
           pip install poetry
           poetry install --extras test --no-root
           poetry run pytest tests/ -v --cov=main --cov-report=html --cov-report=term
+      - name: Run indexer tests
+        run: |
+          cd indexer
+          pip install poetry
+          poetry install --extras test --no-root
+          poetry run pytest tests/ -v --cov=metadata --cov=main --cov-report=html --cov-report=term
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -42,6 +48,7 @@ jobs:
           path: |
             api/htmlcov/
             embedding/htmlcov/
+            indexer/htmlcov/
 
   # ── Detect changed source directories ───────────────────────
 

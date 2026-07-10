@@ -27,12 +27,15 @@ import hashlib
 import logging
 import os
 from pathlib import Path
+from typing import Any
 
 import httpx
 from llama_index.core import Document
 from llama_index.core.node_parser import MarkdownNodeParser
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams
+
+from metadata import build_section_path, extract_section_path, load_document_metadata
 
 # ── Config (all from env, sensible defaults) ────────────────
 
@@ -109,17 +112,25 @@ async def _delete_source_points(client: AsyncQdrantClient, source: str) -> None:
 
 
 def _load_markdown_files() -> list[Document]:
-    """Read all .md files as LlamaIndex Documents (skip README.md)."""
+    """Read Markdown files and attach validated source metadata."""
     docs: list[Document] = []
     if not DATA_DIR.exists():
         logger.warning("data dir not found: %s", DATA_DIR)
         return docs
-    for path in sorted(DATA_DIR.glob("*.md")):
-        if path.name == "README.md":
-            continue
+    paths = [path for path in sorted(DATA_DIR.glob("*.md")) if path.name != "README.md"]
+    document_metadata = load_document_metadata(DATA_DIR, {path.name for path in paths})
+    for path in paths:
         text = path.read_text(encoding="utf-8")
         if text.strip():
-            docs.append(Document(text=text, metadata={"source": path.name}))
+            docs.append(
+                Document(
+                    text=text,
+                    metadata={
+                        "source": path.name,
+                        "document_metadata": document_metadata[path.name],
+                    },
+                )
+            )
     logger.info("loaded %d markdown files", len(docs))
     return docs
 
@@ -144,6 +155,29 @@ def _point_id(source: str, text: str) -> int:
     """Build a stable 64-bit point id from source filename and chunk text."""
     digest = hashlib.sha256(f"{source}\0{text}".encode("utf-8")).hexdigest()
     return int(digest[:16], 16)
+
+
+def _build_points(nodes: list[Any], vectors: list[list[float]]) -> list[PointStruct]:
+    """Build Qdrant points while preserving document and section metadata."""
+    if len(nodes) != len(vectors):
+        raise ValueError("embedding count does not match parsed chunk count")
+
+    return [
+        PointStruct(
+            id=_point_id(node.metadata.get("source", "?"), node.get_content()),
+            vector=vector.tolist() if hasattr(vector, "tolist") else vector,
+            payload={
+                "source": node.metadata.get("source", "?"),
+                "text": node.get_content(),
+                "document_metadata": node.metadata.get("document_metadata", {}),
+                "section_path": build_section_path(
+                    node.metadata.get("header_path", ""), node.get_content()
+                ),
+                "section_headings": extract_section_path(node.get_content()),
+            },
+        )
+        for node, vector in zip(nodes, vectors, strict=True)
+    ]
 
 
 # ── Main entry point ───────────────────────────────────────
@@ -200,17 +234,7 @@ async def index_all() -> int:
         vectors = _embed(texts)
 
         # 7. Upsert with stable ids so the collection remains persistent.
-        points = [
-            PointStruct(
-                id=_point_id(nodes[i].metadata.get("source", "?"), nodes[i].get_content()),
-                vector=vec.tolist() if hasattr(vec, "tolist") else vec,
-                payload={
-                    "source": nodes[i].metadata.get("source", "?"),
-                    "text": nodes[i].get_content(),
-                },
-            )
-            for i, vec in enumerate(vectors)
-        ]
+        points = _build_points(nodes, vectors)
         await client.upsert(
             collection_name=QDRANT_COLLECTION_NAME,
             points=points,
