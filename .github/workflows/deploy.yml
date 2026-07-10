@@ -192,12 +192,12 @@ jobs:
   update-config:
     needs: [changes, build-api, build-embedding, build-indexer]
     if: |
-      success() &&
-      (github.event_name == 'workflow_dispatch' ||
-       needs.changes.outputs.api == 'true' ||
-       needs.changes.outputs.embedding == 'true' ||
-       needs.changes.outputs.indexer == 'true' ||
-       needs.changes.outputs.workflows == 'true')
+      always() &&
+      !failure() &&
+      !cancelled() &&
+      (needs.build-api.result == 'success' ||
+       needs.build-embedding.result == 'success' ||
+       needs.build-indexer.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: read
