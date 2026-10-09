@@ -4,9 +4,9 @@ Architecture::
 
     StartEvent → [retrieve] → RetrievedEvent → [synthesize] → StopEvent
 
-- **retrieve**  — Embeds the user query, searches Qdrant with dense vectors.
-- **synthesize** — Streams a response from DeepSeek with identity-grounded
-  system prompt + retrieved context.
+- **retrieve**  — Embeds the user query, searches Qdrant, labels each hit.
+- **synthesize** — Streams one DeepSeek response from the identity prompt
+  plus that labeled evidence.
 
 The workflow returns an ``AsyncGenerator[str, None]`` suitable for SSE.
 """
@@ -23,6 +23,7 @@ from workflows import Context, Workflow, step
 from workflows.events import Event, StartEvent, StopEvent
 
 from app.core.config import settings
+from app.ai.evidence import EvidencePacket, build_evidence_packet
 from app.ai.prompts import build_system_prompt
 from app.ai.qdrant import hybrid_search
 from app.ai.retrieval import classify_query
@@ -34,10 +35,10 @@ logger = logging.getLogger(__name__)
 
 
 class RetrievedEvent(Event):
-    """Carries retrieved context chunks to the synthesize step."""
+    """Carries the labeled evidence packet to the synthesize step."""
 
     query: str
-    context_chunks: list[str]
+    evidence: EvidencePacket
 
 
 # ── Workflow ───────────────────────────────────────────────
@@ -100,13 +101,16 @@ class AvatarWorkflow(Workflow):
         ctx: Context,
         ev: StartEvent,
     ) -> RetrievedEvent:
-        """Embed the query, search Qdrant, return relevant chunks.
+        """Embed the query, search Qdrant, and label the hits.
 
-        Falls back to an empty context list when Qdrant is unreachable
-        or contains no indexed data — the identity in the system prompt
-        remains available as the anti-hallucination baseline.
+        Falls back to an empty evidence packet when Qdrant is unreachable
+        or contains no indexed data. The identity in the system prompt
+        remains the abstention baseline.
         """
         query: str = ev.get("query", "")
+        results: list[dict[str, Any]] = []
+        filtered_domains: tuple[str, ...] = ()
+        filter_fallback = False
 
         try:
             query_vector = await self._embed_query(query)
@@ -118,29 +122,38 @@ class AvatarWorkflow(Workflow):
                 domains=list(classification.domains),
             )
             results = search.payloads
-            logger.debug(
-                "retrieve | metadata_domains=%s filter_fallback=%s",
-                search.filtered_domains,
-                search.filter_fallback,
-            )
+            filtered_domains = tuple(search.filtered_domains)
+            filter_fallback = search.filter_fallback
         except Exception:
             logger.exception("retrieve | Qdrant search failed — returning empty context")
-            results = []
 
-        context_chunks = [r.get("text", "") for r in results if r.get("text")]
-
-        logger.debug(
-            "retrieve | query=%s  results=%d  chunks=%d",
-            query,
-            len(results),
-            len(context_chunks),
+        evidence = build_evidence_packet(
+            results,
+            filtered_domains=filtered_domains,
+            filter_fallback=filter_fallback,
         )
-        for i, chunk in enumerate(context_chunks):
-            preview = chunk[:300] + "…" if len(chunk) > 300 else chunk
-            source = results[i].get("source", "?") if i < len(results) else "?"
-            logger.debug("retrieve | chunk[%d] source=%s  text=%s", i, source, preview)
+        logger.info(
+            "retrieve | domains=%s mixed_scopes=%s multi_project=%s sensitive=%s "
+            "chunks=%d filter_fallback=%s retrieval_empty=%s",
+            list(evidence.filtered_domains),
+            evidence.mixed_scopes,
+            evidence.multi_project,
+            evidence.sensitive,
+            len(evidence.items),
+            evidence.filter_fallback,
+            evidence.retrieval_empty,
+        )
+        for item in evidence.items:
+            preview = item.text[:300] + "…" if len(item.text) > 300 else item.text
+            logger.debug(
+                "retrieve | source=%s scope=%s section=%s text=%s",
+                item.source,
+                item.scope,
+                item.section_path,
+                preview,
+            )
 
-        return RetrievedEvent(query=query, context_chunks=context_chunks)
+        return RetrievedEvent(query=query, evidence=evidence)
 
     # ── Step 2: Synthesize ───────────────────────────────────
 
@@ -155,7 +168,7 @@ class AvatarWorkflow(Workflow):
         Returns a ``StopEvent`` whose ``result`` is an async generator
         yielding response tokens for SSE streaming.
         """
-        system_prompt = build_system_prompt(context_chunks=ev.context_chunks)
+        system_prompt = build_system_prompt(evidence=ev.evidence)
         logger.debug("synthesize | system_prompt (%d chars):\n%s", len(system_prompt), system_prompt)
 
         messages = [
@@ -185,8 +198,8 @@ class AvatarWorkflow(Workflow):
                 yield "[Error: failed to generate response]"
 
         logger.debug(
-            "synthesize | query=%s  context_chunks=%d",
+            "synthesize | query=%s  chunks=%d",
             ev.query,
-            len(ev.context_chunks),
+            len(ev.evidence.items),
         )
         return StopEvent(result=_stream_tokens())

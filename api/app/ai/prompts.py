@@ -8,19 +8,45 @@ from __future__ import annotations
 
 from datetime import date
 
+from app.ai.evidence import EvidencePacket, render_evidence_block
 from app.core.identity import IDENTITY
 
+_EVIDENCE_SCOPE_RULES = (
+    "CRITICAL — Evidence scope: Each knowledge item is labeled with scope, "
+    "source, and section. Obey the labels.\n"
+    "- scope=inventory lists technologies or skills and does not say where "
+    "they were used. Do not claim you used an inventory technology on a "
+    "project, role, or employer unless a scope=role or scope=project item "
+    "says so. Say you have exposure to it.\n"
+    "- scope=narrative is professional narrative. Do not treat it as "
+    "career-wide technology use or as ownership of a service. If one "
+    "narrative sentence names an employer or product, keep the claim inside "
+    "that sentence.\n"
+    "- scope=role and scope=project apply only to that role or project. Do "
+    "not move a technology, responsibility, or outcome into a different role "
+    "or project.\n"
+    "- When no role or project item states where you used a technology or "
+    "what you personally owned, give a first-person limit and omit the "
+    "unsupported detail. An acceptable limit is: \"I can describe the work I "
+    "have written down, and I have not written down ownership beyond that.\" "
+    "Do not mention a knowledge base, context, or retrieval.\n"
+)
 
-def build_system_prompt(context_chunks: list[str] | None = None) -> str:
-    """Build the full system prompt with core identity + optional RAG context.
+
+def build_system_prompt(
+    context_chunks: list[str] | None = None,
+    evidence: EvidencePacket | None = None,
+) -> str:
+    """Build the full system prompt with core identity and optional evidence.
 
     Only the barest facts come from ``identity.json`` — name, role, company,
-    location.  Everything else (skills, education, projects, bio, languages)
-    must come from retrieved RAG context.  The model is explicitly instructed
-    to NEVER fabricate.
+    location. Everything else must come from retrieved evidence. When
+    ``evidence`` is provided, each chunk is labeled with source, section, and
+    scope. ``context_chunks`` remains for unlabeled string fixtures.
 
     Args:
-        context_chunks: Retrieved text chunks from Qdrant (if any).
+        context_chunks: Unlabeled retrieved text, used when ``evidence`` is omitted.
+        evidence: Labeled retrieval packet. Wins over ``context_chunks``.
 
     Returns:
         A fully assembled system message string.
@@ -30,10 +56,12 @@ def build_system_prompt(context_chunks: list[str] | None = None) -> str:
     prompt = (
         "You ARE this person. Speak in first person as yourself — "
         "naturally, directly, as if you're talking about your own life "
-        "and work in an interview. Never use meta-commentary like "
+        "and work in an interview. Do not use system meta-commentary such as "
         "'Based on the information I have', 'According to my knowledge "
-        "base', 'The context suggests', 'I can tell you that', or any "
-        "similar qualifier. Just answer directly.\n\n"
+        "base', 'The context suggests', or 'I can tell you that'. "
+        "A first-person limit is allowed when a detail is not supported, "
+        "for example: \"I can describe the work I have written down, and I "
+        "have not written down ownership beyond that.\"\n\n"
         "Never fabricate personal details — use ONLY the facts below "
         "and your knowledge.\n\n"
         "If your knowledge doesn't state where you used a technology, "
@@ -54,8 +82,17 @@ def build_system_prompt(context_chunks: list[str] | None = None) -> str:
         "must be in English only.\n"
     )
 
-    if context_chunks:
+    if evidence is not None and evidence.items:
+        context_block = render_evidence_block(evidence)
+        include_scope_rules = True
+    elif context_chunks:
         context_block = "\n\n".join(context_chunks)
+        include_scope_rules = False
+    else:
+        context_block = ""
+        include_scope_rules = False
+
+    if context_block:
         prompt += (
             "\n--- Your Knowledge ---\n"
             f"{context_block}\n"
@@ -71,6 +108,10 @@ def build_system_prompt(context_chunks: list[str] | None = None) -> str:
             "about any other category (marital status, ongoing processes, offers, "
             "etc.). Read each fact in isolation and answer ONLY from what is "
             "explicitly stated.\n\n"
+        )
+        if include_scope_rules:
+            prompt += _EVIDENCE_SCOPE_RULES + "\n"
+        prompt += (
             "CRITICAL — Scope boundary: This is a professional interview context. "
             "Answer questions about your work, skills, experience, career goals, "
             "and anything explicitly covered in the knowledge above. If asked about "
